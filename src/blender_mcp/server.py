@@ -359,6 +359,70 @@ def setup_lighting(ctx: Context, type: str = "THREE_POINT", intensity: float = 1
         return f"Error setting up lighting: {str(e)}"
 
 @mcp.tool()
+def focus_camera(ctx: Context, target_object: str = None, distance_factor: float = 3.0) -> str:
+    """
+    Automatically position and aim the camera to frame an object or the entire scene.
+
+    Parameters:
+    - target_object: Optional name of the object to focus on. If omitted, frames the whole scene.
+    - distance_factor: How far back the camera should be (default 3.0).
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("smart_camera_focus", {
+            "target_object": target_object,
+            "distance_factor": distance_factor
+        })
+
+        if "error" in result:
+            return f"Error: {result['error']}"
+
+        return f"Camera focused on {'scene' if not target_object else target_object}."
+    except Exception as e:
+        logger.error(f"Error focusing camera: {str(e)}")
+        return f"Error focusing camera: {str(e)}"
+
+@mcp.tool()
+def setup_atmosphere(ctx: Context, density: float = 0.01) -> str:
+    """
+    Add atmospheric fog/volume to the scene for depth and lighting effects.
+
+    Parameters:
+    - density: The density of the fog (default 0.01).
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("setup_atmosphere", {"density": density})
+
+        if "error" in result:
+            return f"Error: {result['error']}"
+
+        return f"Atmospheric fog added with density {density}."
+    except Exception as e:
+        logger.error(f"Error setting up atmosphere: {str(e)}")
+        return f"Error setting up atmosphere: {str(e)}"
+
+@mcp.tool()
+def create_turntable(ctx: Context, duration_frames: int = 120) -> str:
+    """
+    Create a cinematic 360-degree camera spin animation around the scene center.
+
+    Parameters:
+    - duration_frames: Length of the animation in frames (default 120).
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("create_turntable", {"duration_frames": duration_frames})
+
+        if "error" in result:
+            return f"Error: {result['error']}"
+
+        return f"Turntable animation created over {duration_frames} frames."
+    except Exception as e:
+        logger.error(f"Error creating turntable: {str(e)}")
+        return f"Error creating turntable: {str(e)}"
+
+@mcp.tool()
 def get_polyhaven_categories(ctx: Context, asset_type: str = "hdris") -> str:
     """
     Get a list of categories for a specific asset type on Polyhaven.
@@ -816,6 +880,11 @@ def asset_creation_strategy() -> str:
 
     4. Quick Lighting:
         - Use setup_lighting() to quickly add professional lighting to your scene.
+
+    5. Cinematic Effects:
+        - Use focus_camera() to automatically frame your objects perfectly.
+        - Use setup_atmosphere() to add fog and depth to the scene.
+        - Use create_turntable() to quickly animate a 360-degree showcase spin.
 
     Only fall back to scripting when:
     - PolyHaven and Hyper3D are disabled

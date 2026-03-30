@@ -204,6 +204,9 @@ class BlenderMCPServer:
             "render_preview": self.render_preview,
             "apply_material_preset": self.apply_material_preset,
             "setup_lighting": self.setup_lighting,
+            "smart_camera_focus": self.smart_camera_focus,
+            "setup_atmosphere": self.setup_atmosphere,
+            "create_turntable": self.create_turntable,
         }
         
         # Add Polyhaven handlers only if enabled
@@ -543,6 +546,149 @@ class BlenderMCPServer:
                 side.rotation_euler = (0, 1.57, 0) # Rotate to face center
 
             return {"success": True, "type": type}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def smart_camera_focus(self, target_object=None, distance_factor=3.0):
+        """Automatically position and aim the camera to frame an object or the scene"""
+        try:
+            # Get or create camera
+            cam_obj = bpy.context.scene.camera
+            if not cam_obj:
+                bpy.ops.object.camera_add()
+                cam_obj = bpy.context.active_object
+                bpy.context.scene.camera = cam_obj
+
+            # Determine target bounding box
+            target_objs = []
+            if target_object:
+                obj = bpy.data.objects.get(target_object)
+                if obj:
+                    target_objs.append(obj)
+            else:
+                # Target all visible mesh objects
+                target_objs = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH' and obj.visible_get()]
+
+            if not target_objs:
+                return {"error": "No target objects found for focus"}
+
+            # Calculate total bounding box in world space
+            all_corners = []
+            for obj in target_objs:
+                corners = [obj.matrix_world @ mathutils.Vector(corner) for corner in obj.bound_box]
+                all_corners.extend(corners)
+
+            # Find min/max corners
+            min_c = mathutils.Vector((min(c.x for c in all_corners), min(c.y for c in all_corners), min(c.z for c in all_corners)))
+            max_c = mathutils.Vector((max(c.x for c in all_corners), max(c.y for c in all_corners), max(c.z for c in all_corners)))
+            center = (min_c + max_c) / 2
+            size = (max_c - min_c).length
+
+            # Position camera at a distance
+            direction = mathutils.Vector((1, -1, 0.75)).normalized()
+            cam_obj.location = center + direction * (size * distance_factor)
+
+            # Aim camera at center
+            # Remove old constraints
+            for c in cam_obj.constraints:
+                cam_obj.constraints.remove(c)
+
+            # Add Track To constraint
+            track = cam_obj.constraints.new(type='TRACK_TO')
+            # Use an empty as target for more stability
+            target_empty = bpy.data.objects.get("MCP_Camera_Target")
+            if not target_empty:
+                bpy.ops.object.empty_add(type='PLAIN_AXES', location=center)
+                target_empty = bpy.context.active_object
+                target_empty.name = "MCP_Camera_Target"
+            else:
+                target_empty.location = center
+
+            track.target = target_empty
+            track.track_axis = 'TRACK_NEGATIVE_Z'
+            track.up_axis = 'UP_Y'
+
+            return {"success": True, "target_center": [center.x, center.y, center.z]}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def setup_atmosphere(self, density=0.01, color=(1, 1, 1, 1)):
+        """Add procedural fog/volume to the scene"""
+        try:
+            # Check for existing fog cube
+            fog_obj = bpy.data.objects.get("MCP_Atmosphere")
+            if fog_obj:
+                bpy.data.objects.remove(fog_obj, do_unlink=True)
+
+            # Create a large cube for volume
+            bpy.ops.mesh.primitive_cube_add(size=100, location=(0,0,0))
+            fog_obj = bpy.context.active_object
+            fog_obj.name = "MCP_Atmosphere"
+            fog_obj.display_type = 'WIRE' # Don't block view in viewport
+
+            # Create volume material
+            mat = bpy.data.materials.new(name="MCP_Atmosphere_Material")
+            mat.use_nodes = True
+            nodes = mat.node_tree.nodes
+            links = mat.node_tree.links
+            nodes.clear()
+
+            output = nodes.new(type='ShaderNodeOutputMaterial')
+            volume = nodes.new(type='ShaderNodeVolumePrincipled')
+            volume.inputs['Density'].default_value = density
+            volume.inputs['Color'].default_value = color
+
+            links.new(volume.outputs[0], output.inputs['Volume'])
+
+            fog_obj.data.materials.append(mat)
+
+            # Set render settings for better volume (EEVEE)
+            scene = bpy.context.scene
+            if hasattr(scene.eevee, "volumetric_steps"):
+                scene.eevee.volumetric_steps = 64
+
+            return {"success": True, "density": density}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def create_turntable(self, duration_frames=120, clockwise=True):
+        """Create a 360-degree camera spin animation"""
+        try:
+            cam_obj = bpy.context.scene.camera
+            if not cam_obj:
+                return {"error": "No camera in scene to animate"}
+
+            # Get or create pivot empty at center
+            pivot = bpy.data.objects.get("MCP_Turntable_Pivot")
+            if not pivot:
+                bpy.ops.object.empty_add(type='PLAIN_AXES', location=(0,0,0))
+                pivot = bpy.context.active_object
+                pivot.name = "MCP_Turntable_Pivot"
+
+            # Parent camera to pivot
+            # Clear old parent keep transform
+            original_matrix = cam_obj.matrix_world.copy()
+            cam_obj.parent = pivot
+            cam_obj.matrix_world = original_matrix
+
+            # Animate pivot rotation
+            pivot.rotation_euler = (0, 0, 0)
+            pivot.keyframe_insert(data_path="rotation_euler", frame=1)
+
+            rotation = 2 * 3.14159 if clockwise else -2 * 3.14159
+            pivot.rotation_euler.z = rotation
+            pivot.keyframe_insert(data_path="rotation_euler", frame=duration_frames)
+
+            # Set scene frames
+            bpy.context.scene.frame_start = 1
+            bpy.context.scene.frame_end = duration_frames
+
+            # Make interpolation linear
+            for fcurve in pivot.animation_data.action.fcurves:
+                for kp in fcurve.keyframe_points:
+                    kp.interpolation = 'LINEAR'
+
+            return {"success": True, "frames": duration_frames}
         except Exception as e:
             return {"error": str(e)}
 
