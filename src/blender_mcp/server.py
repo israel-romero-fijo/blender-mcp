@@ -1,6 +1,7 @@
 # blender_mcp_server.py
 from mcp.server.fastmcp import FastMCP, Context, Image
 import socket
+import base64
 import json
 import asyncio
 import logging
@@ -285,6 +286,77 @@ def execute_blender_code(ctx: Context, code: str) -> str:
     except Exception as e:
         logger.error(f"Error executing code: {str(e)}")
         return f"Error executing code: {str(e)}"
+
+@mcp.tool()
+def render_preview(ctx: Context, width: int = 512, height: int = 512) -> Image:
+    """
+    Render a preview of the current Blender scene.
+
+    Parameters:
+    - width: Width of the preview image (default 512)
+    - height: Height of the preview image (default 512)
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("render_preview", {"width": width, "height": height})
+
+        if "error" in result:
+            raise Exception(result["error"])
+
+        image_data = result["image_data"]
+        return Image(data=base64.b64decode(image_data), format="png")
+    except Exception as e:
+        logger.error(f"Error rendering preview: {str(e)}")
+        # Fallback to returning error as text if Image fails
+        raise e
+
+@mcp.tool()
+def apply_material_preset(ctx: Context, object_name: str, preset: str) -> str:
+    """
+    Apply a high-quality material preset to an object.
+
+    Parameters:
+    - object_name: Name of the object to apply the material to
+    - preset: The preset to apply (GOLD, SILVER, GLASS, PLASTIC, CAR_PAINT, MATTE)
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("apply_material_preset", {
+            "object_name": object_name,
+            "preset": preset
+        })
+
+        if "error" in result:
+            return f"Error: {result['error']}"
+
+        return f"Successfully applied {preset} material to {object_name}."
+    except Exception as e:
+        logger.error(f"Error applying material preset: {str(e)}")
+        return f"Error applying material preset: {str(e)}"
+
+@mcp.tool()
+def setup_lighting(ctx: Context, type: str = "THREE_POINT", intensity: float = 1.0) -> str:
+    """
+    Set up a quick professional lighting rig in the scene.
+
+    Parameters:
+    - type: The type of lighting rig (THREE_POINT, STUDIO)
+    - intensity: The overall intensity of the lights (default 1.0)
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("setup_lighting", {
+            "type": type,
+            "intensity": intensity
+        })
+
+        if "error" in result:
+            return f"Error: {result['error']}"
+
+        return f"Successfully set up {type} lighting rig."
+    except Exception as e:
+        logger.error(f"Error setting up lighting: {str(e)}")
+        return f"Error setting up lighting: {str(e)}"
 
 @mcp.tool()
 def get_polyhaven_categories(ctx: Context, asset_type: str = "hdris") -> str:
@@ -735,6 +807,15 @@ def asset_creation_strategy() -> str:
         - Ensure that all objects that should not be clipping are not clipping.
         - Items have right spatial relationship.
     
+
+    2. Visual Verification:
+        - Use render_preview() to see the current state of the scene. This is VERY useful for confirming object placement and lighting.
+
+    3. Fast Material Presets:
+        - Use apply_material_preset() for common materials like GOLD, SILVER, GLASS, etc., before trying to search PolyHaven or write custom material code.
+
+    4. Quick Lighting:
+        - Use setup_lighting() to quickly add professional lighting to your scene.
 
     Only fall back to scripting when:
     - PolyHaven and Hyper3D are disabled

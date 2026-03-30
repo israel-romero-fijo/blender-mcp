@@ -11,6 +11,7 @@ import tempfile
 import traceback
 import os
 import shutil
+import base64
 from bpy.props import StringProperty, IntProperty, BoolProperty, EnumProperty
 import io
 from contextlib import redirect_stdout
@@ -200,6 +201,9 @@ class BlenderMCPServer:
             "execute_code": self.execute_code,
             "get_polyhaven_status": self.get_polyhaven_status,
             "get_hyper3d_status": self.get_hyper3d_status,
+            "render_preview": self.render_preview,
+            "apply_material_preset": self.apply_material_preset,
+            "setup_lighting": self.setup_lighting,
         }
         
         # Add Polyhaven handlers only if enabled
@@ -335,7 +339,7 @@ class BlenderMCPServer:
         # This is powerful but potentially dangerous - use with caution
         try:
             # Create a local namespace for execution
-            namespace = {"bpy": bpy}
+            namespace = {"bpy": bpy, "mathutils": mathutils}
 
             # Capture stdout during execution, and return it as result
             capture_buffer = io.StringIO()
@@ -347,7 +351,200 @@ class BlenderMCPServer:
         except Exception as e:
             raise Exception(f"Code execution error: {str(e)}")
     
-    
+    def render_preview(self, width=512, height=512, samples=16):
+        """Render a preview of the current scene"""
+        temp_path = None
+        scene = bpy.context.scene
+
+        # Save original settings
+        original_engine = scene.render.engine
+        original_width = scene.render.resolution_x
+        original_height = scene.render.resolution_y
+        original_percentage = scene.render.resolution_percentage
+
+        try:
+            # Set render settings for fast preview
+            scene.render.engine = 'BLENDER_EEVEE_NEXT' if bpy.app.version >= (4, 2, 0) else 'BLENDER_EEVEE'
+            scene.render.resolution_x = width
+            scene.render.resolution_y = height
+            scene.render.resolution_percentage = 100
+
+            # Use temporary file
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                temp_path = tmp.name
+
+            scene.render.filepath = temp_path
+            bpy.ops.render.render(write_still=True)
+
+            # Read and encode the image
+            with open(temp_path, "rb") as image_file:
+                encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
+
+            return {
+                "success": True,
+                "image_data": encoded_string,
+                "format": "png",
+                "width": width,
+                "height": height
+            }
+        except Exception as e:
+            print(f"Error rendering preview: {str(e)}")
+            traceback.print_exc()
+            return {"error": str(e)}
+        finally:
+            # Clean up temporary file
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
+
+            # Restore original settings
+            scene.render.engine = original_engine
+            scene.render.resolution_x = original_width
+            scene.render.resolution_y = original_height
+            scene.render.resolution_percentage = original_percentage
+
+    def apply_material_preset(self, object_name, preset):
+        """Apply a high-quality material preset to an object"""
+        try:
+            obj = bpy.data.objects.get(object_name)
+            if not obj:
+                return {"error": f"Object not found: {object_name}"}
+
+            if not hasattr(obj, 'data') or not hasattr(obj.data, 'materials'):
+                return {"error": f"Object {object_name} cannot accept materials"}
+
+            mat_name = f"Preset_{preset}_{object_name}"
+            mat = bpy.data.materials.new(name=mat_name)
+            mat.use_nodes = True
+            nodes = mat.node_tree.nodes
+            links = mat.node_tree.links
+            nodes.clear()
+
+            output = nodes.new(type='ShaderNodeOutputMaterial')
+            output.location = (400, 0)
+
+            principled = nodes.new(type='ShaderNodeBsdfPrincipled')
+            principled.location = (0, 0)
+            links.new(principled.outputs[0], output.inputs[0])
+
+            p = principled.inputs
+
+            preset = preset.upper()
+            if preset == 'GOLD':
+                p['Base Color'].default_value = (1.0, 0.766, 0.336, 1.0)
+                p['Metallic'].default_value = 1.0
+                p['Roughness'].default_value = 0.1
+            elif preset == 'SILVER':
+                p['Base Color'].default_value = (0.95, 0.95, 0.95, 1.0)
+                p['Metallic'].default_value = 1.0
+                p['Roughness'].default_value = 0.1
+            elif preset == 'GLASS':
+                p['Base Color'].default_value = (1.0, 1.0, 1.0, 1.0)
+                p['Transmission Weight'].default_value = 1.0 if bpy.app.version >= (4, 0, 0) else 0.0 # Handled differently in older versions
+                if bpy.app.version < (4, 0, 0):
+                    p['Transmission'].default_value = 1.0
+                p['Roughness'].default_value = 0.0
+                p['IOR'].default_value = 1.45
+                mat.blend_method = 'BLEND' # For EEVEE
+            elif preset == 'PLASTIC':
+                p['Base Color'].default_value = (0.1, 0.2, 0.8, 1.0)
+                p['Roughness'].default_value = 0.1
+                if bpy.app.version >= (4, 0, 0):
+                    p['Specular IOR Level'].default_value = 0.5
+                else:
+                    p['Specular'].default_value = 0.5
+            elif preset == 'CAR_PAINT':
+                p['Base Color'].default_value = (0.8, 0.0, 0.0, 1.0)
+                p['Metallic'].default_value = 0.0
+                p['Roughness'].default_value = 0.4
+                if bpy.app.version >= (4, 0, 0):
+                    p['Coat Weight'].default_value = 1.0
+                    p['Coat Roughness'].default_value = 0.03
+                else:
+                    p['Clearcoat'].default_value = 1.0
+                    p['Clearcoat Roughness'].default_value = 0.03
+            elif preset == 'MATTE':
+                p['Base Color'].default_value = (0.8, 0.8, 0.8, 1.0)
+                p['Roughness'].default_value = 1.0
+                if bpy.app.version >= (4, 0, 0):
+                    p['Specular IOR Level'].default_value = 0.0
+                else:
+                    p['Specular'].default_value = 0.0
+            else:
+                return {"error": f"Unknown preset: {preset}"}
+
+            # Clear existing materials and add new one
+            obj.data.materials.clear()
+            obj.data.materials.append(mat)
+
+            return {"success": True, "material": mat.name}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def setup_lighting(self, type='THREE_POINT', intensity=1.0):
+        """Set up a quick lighting rig"""
+        try:
+            # Delete existing lights if they were created by this tool before
+            for obj in bpy.data.objects:
+                if obj.type == 'LIGHT' and obj.name.startswith("MCP_Light"):
+                    bpy.data.objects.remove(obj, do_unlink=True)
+
+            if type.upper() == 'THREE_POINT':
+                # Key Light
+                bpy.ops.object.light_add(type='AREA', location=(5, -5, 5))
+                key = bpy.context.active_object
+                key.name = "MCP_Light_Key"
+                key.data.energy = 500 * intensity
+                key.data.size = 2.0
+
+                # Fill Light
+                bpy.ops.object.light_add(type='AREA', location=(-5, -3, 3))
+                fill = bpy.context.active_object
+                fill.name = "MCP_Light_Fill"
+                fill.data.energy = 150 * intensity
+                fill.data.size = 4.0
+
+                # Back Light (Rim Light)
+                bpy.ops.object.light_add(type='SPOT', location=(0, 5, 5))
+                rim = bpy.context.active_object
+                rim.name = "MCP_Light_Rim"
+                rim.data.energy = 300 * intensity
+
+                # Point them all towards center
+                for l in [key, fill, rim]:
+                    constraint = l.constraints.new(type='TRACK_TO')
+                    constraint.target = None # We'll create a target empty
+
+                target = bpy.data.objects.get("MCP_Light_Target")
+                if not target:
+                    bpy.ops.object.empty_add(type='PLAIN_AXES', location=(0,0,0))
+                    target = bpy.context.active_object
+                    target.name = "MCP_Light_Target"
+
+                for l in [key, fill, rim]:
+                    l.constraints[0].target = target
+
+            elif type.upper() == 'STUDIO':
+                # Large top softbox
+                bpy.ops.object.light_add(type='AREA', location=(0, 0, 8))
+                top = bpy.context.active_object
+                top.name = "MCP_Light_Top"
+                top.data.energy = 1000 * intensity
+                top.data.size = 5.0
+
+                # Side bounce
+                bpy.ops.object.light_add(type='AREA', location=(8, 0, 2))
+                side = bpy.context.active_object
+                side.name = "MCP_Light_Side"
+                side.data.energy = 400 * intensity
+                side.data.size = 3.0
+                side.rotation_euler = (0, 1.57, 0) # Rotate to face center
+
+            return {"success": True, "type": type}
+        except Exception as e:
+            return {"error": str(e)}
 
     def get_polyhaven_categories(self, asset_type):
         """Get categories for a specific asset type from Polyhaven"""
