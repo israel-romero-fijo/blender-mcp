@@ -1,0 +1,3 @@
+## 2026-03-31 - [Optimized MCP-Blender Communication]
+**Learning:** Redundant round-trips and repeated JSON parsing of partial buffers created a significant performance bottleneck. Every tool call was triggering a mandatory "ping" command to Blender, doubling latency. Furthermore, large responses (like asset searches) suffered from quadratic overhead because the server joined and parsed the entire buffer on every received chunk.
+**Action:** Removed redundant pings by caching status on initial connection. Optimized response receiving to only attempt JSON parsing when the chunk contains a potential terminator (`} ` or ` ] `). Replaced `+=` string concatenation with list-based `join()` for large response formatting.
