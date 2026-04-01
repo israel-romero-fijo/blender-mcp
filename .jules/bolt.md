@@ -1,0 +1,3 @@
+## 2025-05-15 - [Efficient JSON Streaming and Connection Caching]
+**Learning:** Redundant `json.loads` calls in a chunked `recv` loop cause $O(N^2)$ performance overhead, especially noticeable for large responses (e.g., scene exports). Additionally, performing health-check "pings" on every tool call adds at least one RTT of latency to every interaction.
+**Action:** Always use a lightweight heuristic (e.g., checking for '}') before attempting to parse partial JSON buffers in network code. Cache status flags that don't change frequently (like PolyHaven activation) during initial connection instead of fetching them on every call. Use `socket.fileno()` for a zero-latency socket health check.
