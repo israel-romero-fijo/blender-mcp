@@ -1,0 +1,3 @@
+## 2025-05-15 - [Optimization of Blender connection and communication]
+**Learning:** Checking for JSON termination in a network stream using `endswith()` is fragile if the server sends trailing whitespace (like `\n`), leading to catastrophic latency as the client blocks on `recv()`. Always use `rstrip()` before checking for terminators. Also, when removing active pings for performance, ensure the subsequent command failure explicitly invalidates the connection for recovery.
+**Action:** Use `chunk.rstrip().endswith((b'}', b']'))` for JSON stream detection and ensure `self.sock = None` on any socket error in `send_command`.
