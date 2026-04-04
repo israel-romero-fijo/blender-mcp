@@ -66,16 +66,21 @@ class BlenderConnection:
                     
                     chunks.append(chunk)
                     
-                    # Check if we've received a complete JSON object
-                    try:
-                        data = b''.join(chunks)
-                        json.loads(data.decode('utf-8'))
-                        # If we get here, it parsed successfully
-                        logger.info(f"Received complete response ({len(data)} bytes)")
-                        return data
-                    except json.JSONDecodeError:
-                        # Incomplete JSON, continue receiving
-                        continue
+                    # Performance optimization: Only try to parse if the chunk likely ends a JSON object
+                    # This avoids the quadratic overhead of parsing increasingly larger data on every chunk
+                    if chunk.rstrip().endswith((b'}', b']')):
+                        try:
+                            data = b''.join(chunks)
+                            json.loads(data.decode('utf-8'))
+                            # If we get here, it parsed successfully
+                            logger.info(f"Received complete response ({len(data)} bytes)")
+                            return data
+                        except json.JSONDecodeError:
+                            # Incomplete JSON, continue receiving
+                            pass
+
+                    # Incomplete JSON or not a JSON terminator, continue receiving
+                    continue
                 except socket.timeout:
                     # If we hit a timeout during receiving, break the loop and try to use what we have
                     logger.warning("Socket timeout during chunked receive")
@@ -209,9 +214,12 @@ def get_blender_connection():
     # If we have an existing connection, check if it's still valid
     if _blender_connection is not None:
         try:
-            # First check if PolyHaven is enabled by sending a ping command
+            # Quick check if the socket is still healthy without a full round-trip "ping"
+            if _blender_connection.sock and _blender_connection.sock.fileno() != -1:
+                return _blender_connection
+
+            # If the socket seems dead, try sending a status check only if it was already initialized
             result = _blender_connection.send_command("get_polyhaven_status")
-            # Store the PolyHaven status globally
             _polyhaven_enabled = result.get("enabled", False)
             return _blender_connection
         except Exception as e:
@@ -230,6 +238,14 @@ def get_blender_connection():
             logger.error("Failed to connect to Blender")
             _blender_connection = None
             raise Exception("Could not connect to Blender. Make sure the Blender addon is running.")
+
+        # Initial status check on new connection
+        try:
+            result = _blender_connection.send_command("get_polyhaven_status")
+            _polyhaven_enabled = result.get("enabled", False)
+        except:
+            pass
+
         logger.info("Created new persistent connection to Blender")
     
     return _blender_connection
@@ -303,17 +319,17 @@ def get_polyhaven_categories(ctx: Context, asset_type: str = "hdris") -> str:
         if "error" in result:
             return f"Error: {result['error']}"
         
-        # Format the categories in a more readable way
+        # Performance optimization: Use list accumulation and join for string building
         categories = result["categories"]
-        formatted_output = f"Categories for {asset_type}:\n\n"
+        output_parts = [f"Categories for {asset_type}:\n\n"]
         
         # Sort categories by count (descending)
         sorted_categories = sorted(categories.items(), key=lambda x: x[1], reverse=True)
         
         for category, count in sorted_categories:
-            formatted_output += f"- {category}: {count} assets\n"
+            output_parts.append(f"- {category}: {count} assets\n")
         
-        return formatted_output
+        return "".join(output_parts)
     except Exception as e:
         logger.error(f"Error getting Polyhaven categories: {str(e)}")
         return f"Error getting Polyhaven categories: {str(e)}"
@@ -343,26 +359,26 @@ def search_polyhaven_assets(
         if "error" in result:
             return f"Error: {result['error']}"
         
-        # Format the assets in a more readable way
+        # Performance optimization: Use list accumulation and join for string building
         assets = result["assets"]
         total_count = result["total_count"]
         returned_count = result["returned_count"]
         
-        formatted_output = f"Found {total_count} assets"
+        output_parts = [f"Found {total_count} assets"]
         if categories:
-            formatted_output += f" in categories: {categories}"
-        formatted_output += f"\nShowing {returned_count} assets:\n\n"
+            output_parts.append(f" in categories: {categories}")
+        output_parts.append(f"\nShowing {returned_count} assets:\n\n")
         
         # Sort assets by download count (popularity)
         sorted_assets = sorted(assets.items(), key=lambda x: x[1].get("download_count", 0), reverse=True)
         
         for asset_id, asset_data in sorted_assets:
-            formatted_output += f"- {asset_data.get('name', asset_id)} (ID: {asset_id})\n"
-            formatted_output += f"  Type: {['HDRI', 'Texture', 'Model'][asset_data.get('type', 0)]}\n"
-            formatted_output += f"  Categories: {', '.join(asset_data.get('categories', []))}\n"
-            formatted_output += f"  Downloads: {asset_data.get('download_count', 'Unknown')}\n\n"
+            output_parts.append(f"- {asset_data.get('name', asset_id)} (ID: {asset_id})\n")
+            output_parts.append(f"  Type: {['HDRI', 'Texture', 'Model'][asset_data.get('type', 0)]}\n")
+            output_parts.append(f"  Categories: {', '.join(asset_data.get('categories', []))}\n")
+            output_parts.append(f"  Downloads: {asset_data.get('download_count', 'Unknown')}\n\n")
         
-        return formatted_output
+        return "".join(output_parts)
     except Exception as e:
         logger.error(f"Error searching Polyhaven assets: {str(e)}")
         return f"Error searching Polyhaven assets: {str(e)}"
@@ -455,23 +471,26 @@ def set_texture(
             has_nodes = material_info.get("has_nodes", False)
             texture_nodes = material_info.get("texture_nodes", [])
             
-            output = f"Successfully applied texture '{texture_id}' to {object_name}.\n"
-            output += f"Using material '{material_name}' with maps: {maps}.\n\n"
-            output += f"Material has nodes: {has_nodes}\n"
-            output += f"Total node count: {node_count}\n\n"
+            # Performance optimization: Use list accumulation and join for string building
+            output_parts = [
+                f"Successfully applied texture '{texture_id}' to {object_name}.\n",
+                f"Using material '{material_name}' with maps: {maps}.\n\n",
+                f"Material has nodes: {has_nodes}\n",
+                f"Total node count: {node_count}\n\n"
+            ]
             
             if texture_nodes:
-                output += "Texture nodes:\n"
+                output_parts.append("Texture nodes:\n")
                 for node in texture_nodes:
-                    output += f"- {node['name']} using image: {node['image']}\n"
+                    output_parts.append(f"- {node['name']} using image: {node['image']}\n")
                     if node['connections']:
-                        output += "  Connections:\n"
+                        output_parts.append("  Connections:\n")
                         for conn in node['connections']:
-                            output += f"    {conn}\n"
+                            output_parts.append(f"    {conn}\n")
             else:
-                output += "No texture nodes found in the material.\n"
+                output_parts.append("No texture nodes found in the material.\n")
             
-            return output
+            return "".join(output_parts)
         else:
             return f"Failed to apply texture: {result.get('message', 'Unknown error')}"
     except Exception as e:
