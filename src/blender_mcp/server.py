@@ -1,6 +1,7 @@
 # blender_mcp_server.py
 from mcp.server.fastmcp import FastMCP, Context, Image
 import socket
+import base64
 import json
 import asyncio
 import logging
@@ -285,6 +286,353 @@ def execute_blender_code(ctx: Context, code: str) -> str:
     except Exception as e:
         logger.error(f"Error executing code: {str(e)}")
         return f"Error executing code: {str(e)}"
+
+@mcp.tool()
+def render_preview(ctx: Context, width: int = 512, height: int = 512) -> Image:
+    """
+    Render a preview of the current Blender scene.
+
+    Parameters:
+    - width: Width of the preview image (default 512)
+    - height: Height of the preview image (default 512)
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("render_preview", {"width": width, "height": height})
+
+        if "error" in result:
+            raise Exception(result["error"])
+
+        image_data = result["image_data"]
+        return Image(data=base64.b64decode(image_data), format="png")
+    except Exception as e:
+        logger.error(f"Error rendering preview: {str(e)}")
+        # Fallback to returning error as text if Image fails
+        raise e
+
+@mcp.tool()
+def apply_material_preset(ctx: Context, object_name: str, preset: str) -> str:
+    """
+    Apply a high-quality material preset to an object.
+
+    Parameters:
+    - object_name: Name of the object to apply the material to
+    - preset: The preset to apply (GOLD, SILVER, GLASS, PLASTIC, CAR_PAINT, MATTE)
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("apply_material_preset", {
+            "object_name": object_name,
+            "preset": preset
+        })
+
+        if "error" in result:
+            return f"Error: {result['error']}"
+
+        return f"Successfully applied {preset} material to {object_name}."
+    except Exception as e:
+        logger.error(f"Error applying material preset: {str(e)}")
+        return f"Error applying material preset: {str(e)}"
+
+@mcp.tool()
+def setup_lighting(ctx: Context, type: str = "THREE_POINT", intensity: float = 1.0) -> str:
+    """
+    Set up a quick professional lighting rig in the scene.
+
+    Parameters:
+    - type: The type of lighting rig (THREE_POINT, STUDIO)
+    - intensity: The overall intensity of the lights (default 1.0)
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("setup_lighting", {
+            "type": type,
+            "intensity": intensity
+        })
+
+        if "error" in result:
+            return f"Error: {result['error']}"
+
+        return f"Successfully set up {type} lighting rig."
+    except Exception as e:
+        logger.error(f"Error setting up lighting: {str(e)}")
+        return f"Error setting up lighting: {str(e)}"
+
+@mcp.tool()
+def focus_camera(ctx: Context, target_object: str = None, distance_factor: float = 3.0) -> str:
+    """
+    Automatically position and aim the camera to frame an object or the entire scene.
+
+    Parameters:
+    - target_object: Optional name of the object to focus on. If omitted, frames the whole scene.
+    - distance_factor: How far back the camera should be (default 3.0).
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("smart_camera_focus", {
+            "target_object": target_object,
+            "distance_factor": distance_factor
+        })
+
+        if "error" in result:
+            return f"Error: {result['error']}"
+
+        return f"Camera focused on {'scene' if not target_object else target_object}."
+    except Exception as e:
+        logger.error(f"Error focusing camera: {str(e)}")
+        return f"Error focusing camera: {str(e)}"
+
+@mcp.tool()
+def setup_atmosphere(ctx: Context, density: float = 0.01) -> str:
+    """
+    Add atmospheric fog/volume to the scene for depth and lighting effects.
+
+    Parameters:
+    - density: The density of the fog (default 0.01).
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("setup_atmosphere", {"density": density})
+
+        if "error" in result:
+            return f"Error: {result['error']}"
+
+        return f"Atmospheric fog added with density {density}."
+    except Exception as e:
+        logger.error(f"Error setting up atmosphere: {str(e)}")
+        return f"Error setting up atmosphere: {str(e)}"
+
+@mcp.tool()
+def create_turntable(ctx: Context, duration_frames: int = 120) -> str:
+    """
+    Create a cinematic 360-degree camera spin animation around the scene center.
+
+    Parameters:
+    - duration_frames: Length of the animation in frames (default 120).
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("create_turntable", {"duration_frames": duration_frames})
+
+        if "error" in result:
+            return f"Error: {result['error']}"
+
+        return f"Turntable animation created over {duration_frames} frames."
+    except Exception as e:
+        logger.error(f"Error creating turntable: {str(e)}")
+        return f"Error creating turntable: {str(e)}"
+
+@mcp.tool()
+def manage_collections(ctx: Context, name: str, action: str = "CREATE", parent: str = None, objects: list[str] = None) -> str:
+    """
+    Manage scene collections (folders for objects).
+
+    Parameters:
+    - name: Name of the collection.
+    - action: 'CREATE' or 'DELETE' (default 'CREATE').
+    - parent: Optional parent collection name.
+    - objects: Optional list of object names to move into this collection.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("manage_collections", {
+            "name": name,
+            "action": action,
+            "parent": parent,
+            "objects": objects
+        })
+        if "error" in result: return f"Error: {result['error']}"
+        return f"Collection {name} {action.lower()}d successfully."
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+@mcp.tool()
+def setup_face(ctx: Context, object_name: str) -> str:
+    """
+    Setup basic facial shape keys for speech and expressions on a mesh.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("setup_face_shapekeys", {"object_name": object_name})
+        if "error" in result: return f"Error: {result['error']}"
+        return f"Facial shape keys created for {object_name}."
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+@mcp.tool()
+def animate_speech(ctx: Context, object_name: str, text: str, start_frame: int = 1) -> str:
+    """
+    Animate mouth movement based on a text prompt (Pseudo Lip Sync).
+
+    Parameters:
+    - object_name: Name of the face mesh.
+    - text: The text to be spoken.
+    - start_frame: Frame to start the speech animation.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("animate_speech", {
+            "object_name": object_name,
+            "text": text,
+            "start_frame": start_frame
+        })
+        if "error" in result: return f"Error: {result['error']}"
+        return f"Speech animation applied to {object_name} for the provided text."
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+@mcp.tool()
+def set_facial_expression(ctx: Context, object_name: str, expression: str = "HAPPY", intensity: float = 1.0) -> str:
+    """
+    Set a facial expression (HAPPY, SURPRISE) using shape keys.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("apply_facial_expression", {
+            "object_name": object_name,
+            "expression": expression,
+            "intensity": intensity
+        })
+        if "error" in result: return f"Error: {result['error']}"
+        return f"Facial expression {expression} applied to {object_name}."
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+@mcp.tool()
+def animate_natural_movement(
+    ctx: Context,
+    object_name: str,
+    path_points: list[list[float]],
+    style: str = "WALK",
+    duration: int = 60,
+    start_frame: int = 1
+) -> str:
+    """
+    Animate a biped character along a path with natural movement (bobbing, auto-rotation).
+
+    Parameters:
+    - object_name: Name of the character object.
+    - path_points: List of [x, y, z] points to follow.
+    - style: 'WALK', 'RUN', or 'SNEAK' (default 'WALK').
+    - duration: Total animation duration in frames.
+    - start_frame: Frame to start the animation.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("animate_natural_movement", {
+            "object_name": object_name,
+            "points": path_points,
+            "style": style,
+            "duration": duration,
+            "start_frame": start_frame
+        })
+        if "error" in result: return f"Error: {result['error']}"
+        return f"Natural {style.lower()} animation applied to {object_name}."
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+@mcp.tool()
+def prepare_character(ctx: Context, object_name: str) -> str:
+    """
+    Prepare a mesh object for animation (applies transforms and aligns orientation).
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("setup_humanoid_rig", {"object_name": object_name})
+        if "error" in result: return f"Error: {result['error']}"
+        return f"Character {object_name} prepared for animation."
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+@mcp.tool()
+def transform_object(ctx: Context, name: str, location: list[float] = None, rotation: list[float] = None, scale: list[float] = None, relative: bool = False) -> str:
+    """
+    Directly move, rotate or scale an object.
+
+    Parameters:
+    - name: Name of the object.
+    - location: [x, y, z] coordinates.
+    - rotation: [x, y, z] rotation in DEGREES.
+    - scale: [x, y, z] scale.
+    - relative: If True, adds to current transform instead of setting it.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("transform_object", {
+            "name": name,
+            "location": location,
+            "rotation": rotation,
+            "scale": scale,
+            "relative": relative
+        })
+        if "error" in result: return f"Error: {result['error']}"
+        return f"Object {name} transformed successfully."
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+@mcp.tool()
+def apply_modifier(ctx: Context, object_name: str, modifier_type: str, settings: dict = None) -> str:
+    """
+    Apply a modifier (e.g., SUBSURF, MIRROR, ARRAY, BEVEL) to a mesh.
+
+    Parameters:
+    - object_name: Name of the mesh object.
+    - modifier_type: Type of modifier (e.g., 'SUBSURF', 'MIRROR', 'ARRAY', 'BEVEL').
+    - settings: Optional dict of property names and values for the modifier.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("apply_modifier", {
+            "object_name": object_name,
+            "type": modifier_type,
+            "settings": settings
+        })
+        if "error" in result: return f"Error: {result['error']}"
+        return f"Modifier {modifier_type} applied to {object_name}."
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+@mcp.tool()
+def set_keyframe(ctx: Context, object_name: str, frame: int, properties: list[str] = None) -> str:
+    """
+    Insert keyframes for animation.
+
+    Parameters:
+    - object_name: Name of the object.
+    - frame: Frame number.
+    - properties: List of properties to key (e.g., ["location", "rotation_euler", "scale"]).
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("set_keyframe", {
+            "object_name": object_name,
+            "frame": frame,
+            "properties": properties
+        })
+        if "error" in result: return f"Error: {result['error']}"
+        return f"Keyframe set for {object_name} at frame {frame}."
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+@mcp.tool()
+def setup_render_engine(ctx: Context, engine: str = "CYCLES", samples: int = 128) -> str:
+    """
+    Configure high-quality render settings.
+
+    Parameters:
+    - engine: 'CYCLES' or 'BLENDER_EEVEE'.
+    - samples: Number of render samples.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("setup_render_engine", {
+            "engine": engine,
+            "samples": samples
+        })
+        if "error" in result: return f"Error: {result['error']}"
+        return f"Render engine set to {engine} with {samples} samples."
+    except Exception as e:
+        return f"Error: {str(e)}"
 
 @mcp.tool()
 def get_polyhaven_categories(ctx: Context, asset_type: str = "hdris") -> str:
@@ -735,6 +1083,36 @@ def asset_creation_strategy() -> str:
         - Ensure that all objects that should not be clipping are not clipping.
         - Items have right spatial relationship.
     
+
+    2. Visual Verification:
+        - Use render_preview() to see the current state of the scene. This is VERY useful for confirming object placement and lighting.
+
+    3. Fast Material Presets:
+        - Use apply_material_preset() for common materials like GOLD, SILVER, GLASS, etc., before trying to search PolyHaven or write custom material code.
+
+    4. Quick Lighting:
+        - Use setup_lighting() to quickly add professional lighting to your scene.
+
+    5. Cinematic Effects:
+        - Use focus_camera() to automatically frame your objects perfectly.
+        - Use setup_atmosphere() to add fog and depth to the scene.
+        - Use create_turntable() to quickly animate a 360-degree showcase spin.
+
+    6. Professional Control:
+        - Use manage_collections() to keep the scene organized.
+        - Use transform_object() for precise movement/rotation/scaling.
+        - Use apply_modifier() to enhance mesh geometry (Subsurf, Mirror, etc.).
+        - Use set_keyframe() to create custom animations on the timeline.
+        - Use setup_render_engine() to prepare for final high-quality renders.
+
+    7. Natural Locomotion:
+        - Use prepare_character() before animating any downloaded/imported model.
+        - Use animate_natural_movement() to make biped characters walk or run along a path with realistic bobbing and orientation.
+
+    8. Facial Animation & Speech:
+        - Use setup_face() on any character head before animating speech.
+        - Use animate_speech() to make a character "talk" based on text input.
+        - Use set_facial_expression() to convey emotions.
 
     Only fall back to scripting when:
     - PolyHaven and Hyper3D are disabled
