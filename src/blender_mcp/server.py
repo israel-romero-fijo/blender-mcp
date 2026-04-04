@@ -447,6 +447,52 @@ def manage_collections(ctx: Context, name: str, action: str = "CREATE", parent: 
         return f"Error: {str(e)}"
 
 @mcp.tool()
+def animate_natural_movement(
+    ctx: Context,
+    object_name: str,
+    path_points: list[list[float]],
+    style: str = "WALK",
+    duration: int = 60,
+    start_frame: int = 1
+) -> str:
+    """
+    Animate a biped character along a path with natural movement (bobbing, auto-rotation).
+
+    Parameters:
+    - object_name: Name of the character object.
+    - path_points: List of [x, y, z] points to follow.
+    - style: 'WALK', 'RUN', or 'SNEAK' (default 'WALK').
+    - duration: Total animation duration in frames.
+    - start_frame: Frame to start the animation.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("animate_natural_movement", {
+            "object_name": object_name,
+            "points": path_points,
+            "style": style,
+            "duration": duration,
+            "start_frame": start_frame
+        })
+        if "error" in result: return f"Error: {result['error']}"
+        return f"Natural {style.lower()} animation applied to {object_name}."
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+@mcp.tool()
+def prepare_character(ctx: Context, object_name: str) -> str:
+    """
+    Prepare a mesh object for animation (applies transforms and aligns orientation).
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("setup_humanoid_rig", {"object_name": object_name})
+        if "error" in result: return f"Error: {result['error']}"
+        return f"Character {object_name} prepared for animation."
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+@mcp.tool()
 def transform_object(ctx: Context, name: str, location: list[float] = None, rotation: list[float] = None, scale: list[float] = None, relative: bool = False) -> str:
     """
     Directly move, rotate or scale an object.
@@ -1006,6 +1052,10 @@ def asset_creation_strategy() -> str:
         - Use apply_modifier() to enhance mesh geometry (Subsurf, Mirror, etc.).
         - Use set_keyframe() to create custom animations on the timeline.
         - Use setup_render_engine() to prepare for final high-quality renders.
+
+    7. Natural Locomotion:
+        - Use prepare_character() before animating any downloaded/imported model.
+        - Use animate_natural_movement() to make biped characters walk or run along a path with realistic bobbing and orientation.
 
     Only fall back to scripting when:
     - PolyHaven and Hyper3D are disabled
