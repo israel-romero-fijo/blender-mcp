@@ -423,6 +423,120 @@ def create_turntable(ctx: Context, duration_frames: int = 120) -> str:
         return f"Error creating turntable: {str(e)}"
 
 @mcp.tool()
+def manage_collections(ctx: Context, name: str, action: str = "CREATE", parent: str = None, objects: list[str] = None) -> str:
+    """
+    Manage scene collections (folders for objects).
+
+    Parameters:
+    - name: Name of the collection.
+    - action: 'CREATE' or 'DELETE' (default 'CREATE').
+    - parent: Optional parent collection name.
+    - objects: Optional list of object names to move into this collection.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("manage_collections", {
+            "name": name,
+            "action": action,
+            "parent": parent,
+            "objects": objects
+        })
+        if "error" in result: return f"Error: {result['error']}"
+        return f"Collection {name} {action.lower()}d successfully."
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+@mcp.tool()
+def transform_object(ctx: Context, name: str, location: list[float] = None, rotation: list[float] = None, scale: list[float] = None, relative: bool = False) -> str:
+    """
+    Directly move, rotate or scale an object.
+
+    Parameters:
+    - name: Name of the object.
+    - location: [x, y, z] coordinates.
+    - rotation: [x, y, z] rotation in DEGREES.
+    - scale: [x, y, z] scale.
+    - relative: If True, adds to current transform instead of setting it.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("transform_object", {
+            "name": name,
+            "location": location,
+            "rotation": rotation,
+            "scale": scale,
+            "relative": relative
+        })
+        if "error" in result: return f"Error: {result['error']}"
+        return f"Object {name} transformed successfully."
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+@mcp.tool()
+def apply_modifier(ctx: Context, object_name: str, modifier_type: str, settings: dict = None) -> str:
+    """
+    Apply a modifier (e.g., SUBSURF, MIRROR, ARRAY, BEVEL) to a mesh.
+
+    Parameters:
+    - object_name: Name of the mesh object.
+    - modifier_type: Type of modifier (e.g., 'SUBSURF', 'MIRROR', 'ARRAY', 'BEVEL').
+    - settings: Optional dict of property names and values for the modifier.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("apply_modifier", {
+            "object_name": object_name,
+            "type": modifier_type,
+            "settings": settings
+        })
+        if "error" in result: return f"Error: {result['error']}"
+        return f"Modifier {modifier_type} applied to {object_name}."
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+@mcp.tool()
+def set_keyframe(ctx: Context, object_name: str, frame: int, properties: list[str] = None) -> str:
+    """
+    Insert keyframes for animation.
+
+    Parameters:
+    - object_name: Name of the object.
+    - frame: Frame number.
+    - properties: List of properties to key (e.g., ["location", "rotation_euler", "scale"]).
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("set_keyframe", {
+            "object_name": object_name,
+            "frame": frame,
+            "properties": properties
+        })
+        if "error" in result: return f"Error: {result['error']}"
+        return f"Keyframe set for {object_name} at frame {frame}."
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+@mcp.tool()
+def setup_render_engine(ctx: Context, engine: str = "CYCLES", samples: int = 128) -> str:
+    """
+    Configure high-quality render settings.
+
+    Parameters:
+    - engine: 'CYCLES' or 'BLENDER_EEVEE'.
+    - samples: Number of render samples.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("setup_render_engine", {
+            "engine": engine,
+            "samples": samples
+        })
+        if "error" in result: return f"Error: {result['error']}"
+        return f"Render engine set to {engine} with {samples} samples."
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+@mcp.tool()
 def get_polyhaven_categories(ctx: Context, asset_type: str = "hdris") -> str:
     """
     Get a list of categories for a specific asset type on Polyhaven.
@@ -885,6 +999,13 @@ def asset_creation_strategy() -> str:
         - Use focus_camera() to automatically frame your objects perfectly.
         - Use setup_atmosphere() to add fog and depth to the scene.
         - Use create_turntable() to quickly animate a 360-degree showcase spin.
+
+    6. Professional Control:
+        - Use manage_collections() to keep the scene organized.
+        - Use transform_object() for precise movement/rotation/scaling.
+        - Use apply_modifier() to enhance mesh geometry (Subsurf, Mirror, etc.).
+        - Use set_keyframe() to create custom animations on the timeline.
+        - Use setup_render_engine() to prepare for final high-quality renders.
 
     Only fall back to scripting when:
     - PolyHaven and Hyper3D are disabled

@@ -2,6 +2,7 @@
 
 import bpy
 import mathutils
+import math
 import json
 import threading
 import socket
@@ -207,6 +208,11 @@ class BlenderMCPServer:
             "smart_camera_focus": self.smart_camera_focus,
             "setup_atmosphere": self.setup_atmosphere,
             "create_turntable": self.create_turntable,
+            "manage_collections": self.manage_collections,
+            "transform_object": self.transform_object,
+            "apply_modifier": self.apply_modifier,
+            "set_keyframe": self.set_keyframe,
+            "setup_render_engine": self.setup_render_engine,
         }
         
         # Add Polyhaven handlers only if enabled
@@ -689,6 +695,129 @@ class BlenderMCPServer:
                     kp.interpolation = 'LINEAR'
 
             return {"success": True, "frames": duration_frames}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def manage_collections(self, name, action='CREATE', parent=None, objects=None):
+        """Create, delete or move objects to collections"""
+        try:
+            if action.upper() == 'CREATE':
+                col = bpy.data.collections.get(name)
+                if not col:
+                    col = bpy.data.collections.new(name)
+                    # Link to parent or scene collection
+                    parent_col = bpy.data.collections.get(parent) if parent else bpy.context.scene.collection
+                    parent_col.children.link(col)
+
+                # Link objects if provided
+                if objects:
+                    for obj_name in objects:
+                        obj = bpy.data.objects.get(obj_name)
+                        if obj:
+                            # Unlink from all other collections first to move it
+                            for other_col in obj.users_collection:
+                                other_col.objects.unlink(obj)
+                            col.objects.link(obj)
+                return {"success": True, "collection": col.name}
+
+            elif action.upper() == 'DELETE':
+                col = bpy.data.collections.get(name)
+                if col:
+                    # Optional: handle objects in collection?
+                    bpy.data.collections.remove(col)
+                    return {"success": True, "message": f"Collection {name} removed"}
+                return {"error": "Collection not found"}
+
+            return {"error": f"Unknown action: {action}"}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def transform_object(self, name, location=None, rotation=None, scale=None, relative=False):
+        """Move, rotate or scale an object with optional relative transformation"""
+        try:
+            obj = bpy.data.objects.get(name)
+            if not obj:
+                return {"error": f"Object {name} not found"}
+
+            if location:
+                loc = mathutils.Vector(location)
+                if relative:
+                    obj.location += loc
+                else:
+                    obj.location = loc
+
+            if rotation:
+                # Expecting Euler in degrees
+                rot = [math.radians(r) for r in rotation]
+                rot_v = mathutils.Euler(rot, 'XYZ')
+                if relative:
+                    obj.rotation_euler.rotate(rot_v)
+                else:
+                    obj.rotation_euler = rot_v
+
+            if scale:
+                s = mathutils.Vector(scale)
+                if relative:
+                    obj.scale.x *= s.x
+                    obj.scale.y *= s.y
+                    obj.scale.z *= s.z
+                else:
+                    obj.scale = s
+
+            return {"success": True, "name": name}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def apply_modifier(self, object_name, type, name=None, settings=None):
+        """Add and configure a modifier on an object"""
+        try:
+            obj = bpy.data.objects.get(object_name)
+            if not obj or obj.type != 'MESH':
+                return {"error": "Target must be a mesh object"}
+
+            mod = obj.modifiers.new(name=name or type, type=type.upper())
+
+            if settings:
+                for key, value in settings.items():
+                    if hasattr(mod, key):
+                        setattr(mod, key, value)
+
+            return {"success": True, "modifier": mod.name}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def set_keyframe(self, object_name, frame, properties=None):
+        """Insert keyframes for specified properties at a given frame"""
+        try:
+            obj = bpy.data.objects.get(object_name)
+            if not obj:
+                return {"error": f"Object {object_name} not found"}
+
+            if not properties:
+                properties = ["location", "rotation_euler", "scale"]
+
+            for prop in properties:
+                obj.keyframe_insert(data_path=prop, frame=frame)
+
+            return {"success": True, "frame": frame}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def setup_render_engine(self, engine='CYCLES', device='GPU', samples=128):
+        """Configure the render engine for high quality output"""
+        try:
+            scene = bpy.context.scene
+            scene.render.engine = engine.upper()
+
+            if engine.upper() == 'CYCLES':
+                scene.cycles.device = device.upper()
+                scene.cycles.samples = samples
+                # Enable denoising for better results
+                scene.cycles.use_denoising = True
+            elif engine.upper() in ['BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT']:
+                scene.eevee.taa_render_samples = samples
+
+            return {"success": True, "engine": engine}
         except Exception as e:
             return {"error": str(e)}
 
