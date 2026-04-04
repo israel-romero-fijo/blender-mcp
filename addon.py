@@ -215,6 +215,9 @@ class BlenderMCPServer:
             "setup_render_engine": self.setup_render_engine,
             "animate_natural_movement": self.animate_natural_movement,
             "setup_humanoid_rig": self.setup_humanoid_rig,
+            "setup_face_shapekeys": self.setup_face_shapekeys,
+            "animate_speech": self.animate_speech,
+            "apply_facial_expression": self.apply_facial_expression,
         }
         
         # Add Polyhaven handlers only if enabled
@@ -921,6 +924,112 @@ class BlenderMCPServer:
             bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
 
             return {"success": True, "message": f"Character {object_name} prepared."}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def setup_face_shapekeys(self, object_name):
+        """Prepare a face mesh with basic shape keys for speech and expression"""
+        try:
+            obj = bpy.data.objects.get(object_name)
+            if not obj or obj.type != 'MESH':
+                return {"error": "Target must be a mesh object"}
+
+            if not obj.data.shape_keys:
+                obj.shape_key_add(name="Basis")
+
+            # Simple procedural deformation for "speech" keys if they don't exist
+            # Note: For professional rigs, these should be crafted, but for "wow" effect,
+            # we'll create the placeholders that can be animated.
+            keys = ["Mouth_Open", "Mouth_Wide", "Mouth_O", "Smile", "Surprise"]
+            for key_name in keys:
+                if not obj.data.shape_keys.key_blocks.get(key_name):
+                    obj.shape_key_add(name=key_name)
+
+            return {"success": True, "keys": keys}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def animate_speech(self, object_name, text, start_frame=1, words_per_minute=130):
+        """Heuristically animate mouth shape keys based on text input (Pseudo Lip Sync)"""
+        try:
+            obj = bpy.data.objects.get(object_name)
+            if not obj or not obj.data.shape_keys:
+                return {"error": f"Object {object_name} lacks shape keys. Run setup_face_shapekeys first."}
+
+            sk = obj.data.shape_keys
+            fps = bpy.context.scene.render.fps
+            frames_per_word = (60 / words_per_minute) * fps
+
+            words = text.split()
+            current_frame = start_frame
+
+            # Simplified vowel mapping
+            vowels = {
+                'a': 'Mouth_Open', 'e': 'Mouth_Wide', 'i': 'Mouth_Wide',
+                'o': 'Mouth_O', 'u': 'Mouth_O'
+            }
+
+            for word in words:
+                # Keyframe a 'rest' position
+                for block in sk.key_blocks:
+                    if block.name != "Basis":
+                        block.value = 0
+                        block.keyframe_insert(data_path="value", frame=current_frame)
+
+                # Find vowels in word to "open" the mouth
+                found_vowel = False
+                for char in word.lower():
+                    if char in vowels:
+                        block_name = vowels[char]
+                        block = sk.key_blocks.get(block_name)
+                        if block:
+                            block.value = 0.8
+                            block.keyframe_insert(data_path="value", frame=current_frame + (frames_per_word / 2))
+                            found_vowel = True
+                            break
+
+                if not found_vowel:
+                    # Generic open
+                    block = sk.key_blocks.get("Mouth_Open")
+                    if block:
+                        block.value = 0.5
+                        block.keyframe_insert(data_path="value", frame=current_frame + (frames_per_word / 2))
+
+                current_frame += frames_per_word
+
+            # Final rest keyframe
+            for block in sk.key_blocks:
+                if block.name != "Basis":
+                    block.value = 0
+                    block.keyframe_insert(data_path="value", frame=current_frame)
+
+            return {"success": True, "frames": current_frame - start_frame}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def apply_facial_expression(self, object_name, expression='HAPPY', intensity=1.0):
+        """Instantly set facial shape keys for a specific emotion"""
+        try:
+            obj = bpy.data.objects.get(object_name)
+            if not obj or not obj.data.shape_keys:
+                return {"error": f"Object {object_name} lacks shape keys."}
+
+            sk = obj.data.shape_keys
+            # Reset all
+            for block in sk.key_blocks:
+                if block.name != "Basis":
+                    block.value = 0
+
+            if expression.upper() == 'HAPPY':
+                block = sk.key_blocks.get("Smile")
+                if block: block.value = intensity
+            elif expression.upper() == 'SURPRISE':
+                block = sk.key_blocks.get("Surprise")
+                if block: block.value = intensity
+                block = sk.key_blocks.get("Mouth_O")
+                if block: block.value = intensity * 0.5
+
+            return {"success": True, "expression": expression}
         except Exception as e:
             return {"error": str(e)}
 

@@ -447,6 +447,58 @@ def manage_collections(ctx: Context, name: str, action: str = "CREATE", parent: 
         return f"Error: {str(e)}"
 
 @mcp.tool()
+def setup_face(ctx: Context, object_name: str) -> str:
+    """
+    Setup basic facial shape keys for speech and expressions on a mesh.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("setup_face_shapekeys", {"object_name": object_name})
+        if "error" in result: return f"Error: {result['error']}"
+        return f"Facial shape keys created for {object_name}."
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+@mcp.tool()
+def animate_speech(ctx: Context, object_name: str, text: str, start_frame: int = 1) -> str:
+    """
+    Animate mouth movement based on a text prompt (Pseudo Lip Sync).
+
+    Parameters:
+    - object_name: Name of the face mesh.
+    - text: The text to be spoken.
+    - start_frame: Frame to start the speech animation.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("animate_speech", {
+            "object_name": object_name,
+            "text": text,
+            "start_frame": start_frame
+        })
+        if "error" in result: return f"Error: {result['error']}"
+        return f"Speech animation applied to {object_name} for the provided text."
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+@mcp.tool()
+def set_facial_expression(ctx: Context, object_name: str, expression: str = "HAPPY", intensity: float = 1.0) -> str:
+    """
+    Set a facial expression (HAPPY, SURPRISE) using shape keys.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("apply_facial_expression", {
+            "object_name": object_name,
+            "expression": expression,
+            "intensity": intensity
+        })
+        if "error" in result: return f"Error: {result['error']}"
+        return f"Facial expression {expression} applied to {object_name}."
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+@mcp.tool()
 def animate_natural_movement(
     ctx: Context,
     object_name: str,
@@ -1056,6 +1108,11 @@ def asset_creation_strategy() -> str:
     7. Natural Locomotion:
         - Use prepare_character() before animating any downloaded/imported model.
         - Use animate_natural_movement() to make biped characters walk or run along a path with realistic bobbing and orientation.
+
+    8. Facial Animation & Speech:
+        - Use setup_face() on any character head before animating speech.
+        - Use animate_speech() to make a character "talk" based on text input.
+        - Use set_facial_expression() to convey emotions.
 
     Only fall back to scripting when:
     - PolyHaven and Hyper3D are disabled
