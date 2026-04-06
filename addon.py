@@ -118,7 +118,7 @@ class BlenderMCPServer:
         """Handle connected client"""
         print("Client handler started")
         client.settimeout(None)  # No timeout
-        buffer = b''
+        buffer_list = []
         
         try:
             while self.running:
@@ -129,12 +129,21 @@ class BlenderMCPServer:
                         print("Client disconnected")
                         break
                     
-                    buffer += data
-                    try:
-                        # Try to parse command
-                        command = json.loads(buffer.decode('utf-8'))
-                        buffer = b''
-                        
+                    buffer_list.append(data)
+
+                    # Performance optimization: Only try to parse if the last byte looks like a JSON terminator
+                    # This avoids quadratic overhead of repeated parsing for large payloads
+                    if data.rstrip().endswith((b'}', b']')):
+                        try:
+                            # Try to parse command
+                            full_data = b''.join(buffer_list)
+                            # Use json.loads directly on bytes to avoid an extra string copy
+                            command = json.loads(full_data)
+                            buffer_list = []
+                        except json.JSONDecodeError:
+                            # Incomplete data, wait for more
+                            continue
+
                         # Execute command in Blender's main thread
                         def execute_wrapper():
                             try:
@@ -159,9 +168,6 @@ class BlenderMCPServer:
                         
                         # Schedule execution in main thread
                         bpy.app.timers.register(execute_wrapper, first_interval=0.0)
-                    except json.JSONDecodeError:
-                        # Incomplete data, wait for more
-                        pass
                 except Exception as e:
                     print(f"Error receiving data: {str(e)}")
                     break
