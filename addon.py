@@ -130,38 +130,40 @@ class BlenderMCPServer:
                         break
                     
                     buffer += data
-                    try:
-                        # Try to parse command
-                        command = json.loads(buffer.decode('utf-8'))
-                        buffer = b''
-                        
-                        # Execute command in Blender's main thread
-                        def execute_wrapper():
-                            try:
-                                response = self.execute_command(command)
-                                response_json = json.dumps(response)
+                    # Optimization: Only attempt to parse if the last byte is a JSON terminator
+                    if data.rstrip() and data.rstrip()[-1:] in (b'}', b']'):
+                        try:
+                            # Try to parse command directly from bytes
+                            command = json.loads(buffer)
+                            buffer = b''
+
+                            # Execute command in Blender's main thread
+                            def execute_wrapper():
                                 try:
-                                    client.sendall(response_json.encode('utf-8'))
-                                except:
-                                    print("Failed to send response - client disconnected")
-                            except Exception as e:
-                                print(f"Error executing command: {str(e)}")
-                                traceback.print_exc()
-                                try:
-                                    error_response = {
-                                        "status": "error",
-                                        "message": str(e)
-                                    }
-                                    client.sendall(json.dumps(error_response).encode('utf-8'))
-                                except:
-                                    pass
-                            return None
-                        
-                        # Schedule execution in main thread
-                        bpy.app.timers.register(execute_wrapper, first_interval=0.0)
-                    except json.JSONDecodeError:
-                        # Incomplete data, wait for more
-                        pass
+                                    response = self.execute_command(command)
+                                    response_json = json.dumps(response)
+                                    try:
+                                        client.sendall(response_json.encode('utf-8'))
+                                    except:
+                                        print("Failed to send response - client disconnected")
+                                except Exception as e:
+                                    print(f"Error executing command: {str(e)}")
+                                    traceback.print_exc()
+                                    try:
+                                        error_response = {
+                                            "status": "error",
+                                            "message": str(e)
+                                        }
+                                        client.sendall(json.dumps(error_response).encode('utf-8'))
+                                    except:
+                                        pass
+                                return None
+
+                            # Schedule execution in main thread
+                            bpy.app.timers.register(execute_wrapper, first_interval=0.0)
+                        except json.JSONDecodeError:
+                            # Incomplete data, wait for more
+                            pass
                 except Exception as e:
                     print(f"Error receiving data: {str(e)}")
                     break
@@ -940,7 +942,7 @@ class BlenderMCPServer:
                         if link.to_socket == principled.inputs['Base Color']:
                             links.remove(link)
                     
-                    # Connect through the mix node
+                    # Connect through the mix_node
                     links.new(base_color_node.outputs['Color'], mix_node.inputs[1])
                     links.new(separate_rgb.outputs['R'], mix_node.inputs[2])
                     links.new(mix_node.outputs['Color'], principled.inputs['Base Color'])
