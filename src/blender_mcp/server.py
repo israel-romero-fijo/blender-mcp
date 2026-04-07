@@ -66,16 +66,19 @@ class BlenderConnection:
                     
                     chunks.append(chunk)
                     
-                    # Check if we've received a complete JSON object
-                    try:
-                        data = b''.join(chunks)
-                        json.loads(data.decode('utf-8'))
-                        # If we get here, it parsed successfully
-                        logger.info(f"Received complete response ({len(data)} bytes)")
-                        return data
-                    except json.JSONDecodeError:
-                        # Incomplete JSON, continue receiving
-                        continue
+                    # Quick check for JSON terminator before attempting expensive parsing
+                    if chunk.rstrip() and chunk.rstrip()[-1:] in (b'}', b']'):
+                        # Check if we've received a complete JSON object
+                        try:
+                            data = b''.join(chunks)
+                            json.loads(data)
+                            # If we get here, it parsed successfully
+                            logger.info(f"Received complete response ({len(data)} bytes)")
+                            return data
+                        except json.JSONDecodeError:
+                            # Incomplete JSON, continue receiving
+                            pass
+                    continue
                 except socket.timeout:
                     # If we hit a timeout during receiving, break the loop and try to use what we have
                     logger.warning("Socket timeout during chunked receive")
@@ -96,7 +99,7 @@ class BlenderConnection:
             logger.info(f"Returning data after receive completion ({len(data)} bytes)")
             try:
                 # Try to parse what we have
-                json.loads(data.decode('utf-8'))
+                json.loads(data)
                 return data
             except json.JSONDecodeError:
                 # If we can't parse it, it's incomplete
@@ -208,20 +211,24 @@ def get_blender_connection():
     
     # If we have an existing connection, check if it's still valid
     if _blender_connection is not None:
-        try:
-            # First check if PolyHaven is enabled by sending a ping command
-            result = _blender_connection.send_command("get_polyhaven_status")
-            # Store the PolyHaven status globally
-            _polyhaven_enabled = result.get("enabled", False)
-            return _blender_connection
-        except Exception as e:
-            # Connection is dead, close it and create a new one
-            logger.warning(f"Existing connection is no longer valid: {str(e)}")
+        # Use a lightweight check to see if the socket is still healthy
+        # instead of a full round-trip ping command every time
+        if _blender_connection.sock:
             try:
-                _blender_connection.disconnect()
-            except:
+                # A fileno check is a fast way to see if the socket object is still "open"
+                # from Python's perspective.
+                _blender_connection.sock.fileno()
+                return _blender_connection
+            except Exception:
                 pass
-            _blender_connection = None
+
+        # If we reach here, the connection might be dead
+        logger.warning("Existing connection is no longer valid")
+        try:
+            _blender_connection.disconnect()
+        except:
+            pass
+        _blender_connection = None
     
     # Create a new connection if needed
     if _blender_connection is None:
@@ -230,6 +237,14 @@ def get_blender_connection():
             logger.error("Failed to connect to Blender")
             _blender_connection = None
             raise Exception("Could not connect to Blender. Make sure the Blender addon is running.")
+
+        # Only poll status once on initial connection to cache it
+        try:
+            result = _blender_connection.send_command("get_polyhaven_status")
+            _polyhaven_enabled = result.get("enabled", False)
+        except Exception as e:
+            logger.warning(f"Failed to get PolyHaven status on connection: {e}")
+
         logger.info("Created new persistent connection to Blender")
     
     return _blender_connection
