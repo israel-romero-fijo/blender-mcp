@@ -130,10 +130,15 @@ class BlenderMCPServer:
                         break
                     
                     buffer += data
-                    try:
-                        # Try to parse command
-                        command = json.loads(buffer.decode('utf-8'))
-                        buffer = b''
+                    # Optimization: Only attempt to parse if the buffer ends with a potential JSON terminator
+                    if buffer.rstrip()[-1:] in (b'}', b']'):
+                        try:
+                            # Try to parse command
+                            command = json.loads(buffer)
+                            buffer = b''
+                        except json.JSONDecodeError:
+                            # Incomplete data, wait for more
+                            continue
                         
                         # Execute command in Blender's main thread
                         def execute_wrapper():
@@ -159,9 +164,6 @@ class BlenderMCPServer:
                         
                         # Schedule execution in main thread
                         bpy.app.timers.register(execute_wrapper, first_interval=0.0)
-                    except json.JSONDecodeError:
-                        # Incomplete data, wait for more
-                        pass
                 except Exception as e:
                     print(f"Error receiving data: {str(e)}")
                     break
