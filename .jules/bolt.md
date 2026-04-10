@@ -1,0 +1,3 @@
+## 2025-05-14 - Optimized Socket Communication and JSON Handling
+**Learning:** Redundant proactive pings (`get_polyhaven_status`) on every tool call significantly increased latency (approx. double). Switching to local `fileno()` checks and reactive reconnection yielded measurable speedups. Additionally, naive JSON parsing of incomplete chunks and quadratic string concatenation in socket buffers became a major bottleneck for large payloads (>1MB).
+**Action:** Always favor list-based chunk accumulation for socket data and use heuristic checks (like `endswith('}')`) before attempting expensive `json.loads` calls on potentially incomplete buffers.
