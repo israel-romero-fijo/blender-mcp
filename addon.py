@@ -118,7 +118,7 @@ class BlenderMCPServer:
         """Handle connected client"""
         print("Client handler started")
         client.settimeout(None)  # No timeout
-        buffer = b''
+        chunks = []
         
         try:
             while self.running:
@@ -129,11 +129,17 @@ class BlenderMCPServer:
                         print("Client disconnected")
                         break
                     
-                    buffer += data
+                    chunks.append(data)
+
+                    # Bolt Optimization: Only attempt JSON parse if it looks complete
+                    if not data.rstrip().endswith((b'}', b']')):
+                        continue
+
                     try:
                         # Try to parse command
-                        command = json.loads(buffer.decode('utf-8'))
-                        buffer = b''
+                        buffer = b''.join(chunks)
+                        command = json.loads(buffer)
+                        chunks = []
                         
                         # Execute command in Blender's main thread
                         def execute_wrapper():
