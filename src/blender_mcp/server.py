@@ -66,10 +66,15 @@ class BlenderConnection:
                     
                     chunks.append(chunk)
                     
+                    # Bolt Optimization: Only attempt JSON parse if it looks complete
+                    if not chunk.rstrip().endswith((b'}', b']')):
+                        continue
+
                     # Check if we've received a complete JSON object
                     try:
                         data = b''.join(chunks)
-                        json.loads(data.decode('utf-8'))
+                        # Bolt Optimization: json.loads handles bytes directly since Python 3.6+
+                        json.loads(data)
                         # If we get here, it parsed successfully
                         logger.info(f"Received complete response ({len(data)} bytes)")
                         return data
@@ -96,7 +101,7 @@ class BlenderConnection:
             logger.info(f"Returning data after receive completion ({len(data)} bytes)")
             try:
                 # Try to parse what we have
-                json.loads(data.decode('utf-8'))
+                json.loads(data)
                 return data
             except json.JSONDecodeError:
                 # If we can't parse it, it's incomplete
@@ -129,7 +134,7 @@ class BlenderConnection:
             response_data = self.receive_full_response(self.sock)
             logger.info(f"Received {len(response_data)} bytes of data")
             
-            response = json.loads(response_data.decode('utf-8'))
+            response = json.loads(response_data)
             logger.info(f"Response parsed, status: {response.get('status', 'unknown')}")
             
             if response.get("status") == "error":
@@ -209,11 +214,13 @@ def get_blender_connection():
     # If we have an existing connection, check if it's still valid
     if _blender_connection is not None:
         try:
-            # First check if PolyHaven is enabled by sending a ping command
-            result = _blender_connection.send_command("get_polyhaven_status")
-            # Store the PolyHaven status globally
-            _polyhaven_enabled = result.get("enabled", False)
-            return _blender_connection
+            # Bolt Optimization: Use a lightweight fileno check instead of a full round-trip ping
+            # to verify if the socket is still open.
+            if _blender_connection.sock and _blender_connection.sock.fileno() != -1:
+                return _blender_connection
+
+            # If fileno is -1, it's definitely closed
+            raise ConnectionError("Socket is closed")
         except Exception as e:
             # Connection is dead, close it and create a new one
             logger.warning(f"Existing connection is no longer valid: {str(e)}")
@@ -230,6 +237,14 @@ def get_blender_connection():
             logger.error("Failed to connect to Blender")
             _blender_connection = None
             raise Exception("Could not connect to Blender. Make sure the Blender addon is running.")
+
+        # Bolt Optimization: Only fetch PolyHaven status on initial connection
+        try:
+            result = _blender_connection.send_command("get_polyhaven_status")
+            _polyhaven_enabled = result.get("enabled", False)
+        except Exception as e:
+            logger.warning(f"Could not fetch initial PolyHaven status: {str(e)}")
+
         logger.info("Created new persistent connection to Blender")
     
     return _blender_connection
