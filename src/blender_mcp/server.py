@@ -66,16 +66,18 @@ class BlenderConnection:
                     
                     chunks.append(chunk)
                     
-                    # Check if we've received a complete JSON object
-                    try:
-                        data = b''.join(chunks)
-                        json.loads(data.decode('utf-8'))
-                        # If we get here, it parsed successfully
-                        logger.info(f"Received complete response ({len(data)} bytes)")
-                        return data
-                    except json.JSONDecodeError:
-                        # Incomplete JSON, continue receiving
-                        continue
+                    # Performance optimization: only attempt JSON parse if it looks like a complete object/array
+                    # This avoids quadratic overhead of repeated parsing and decoding of large messages
+                    if chunk.rstrip().endswith((b'}', b']')):
+                        try:
+                            data = b''.join(chunks)
+                            json.loads(data) # json.loads supports bytes directly
+                            # If we get here, it parsed successfully
+                            logger.info(f"Received complete response ({len(data)} bytes)")
+                            return data
+                        except json.JSONDecodeError:
+                            # Incomplete JSON or false positive terminator, continue receiving
+                            pass
                 except socket.timeout:
                     # If we hit a timeout during receiving, break the loop and try to use what we have
                     logger.warning("Socket timeout during chunked receive")
@@ -96,7 +98,7 @@ class BlenderConnection:
             logger.info(f"Returning data after receive completion ({len(data)} bytes)")
             try:
                 # Try to parse what we have
-                json.loads(data.decode('utf-8'))
+                json.loads(data)
                 return data
             except json.JSONDecodeError:
                 # If we can't parse it, it's incomplete
@@ -209,10 +211,11 @@ def get_blender_connection():
     # If we have an existing connection, check if it's still valid
     if _blender_connection is not None:
         try:
-            # First check if PolyHaven is enabled by sending a ping command
-            result = _blender_connection.send_command("get_polyhaven_status")
-            # Store the PolyHaven status globally
-            _polyhaven_enabled = result.get("enabled", False)
+            # Performance optimization: use a lightweight socket check instead of a full round-trip ping.
+            # fileno() returns -1 if the socket is closed.
+            if _blender_connection.sock is None or _blender_connection.sock.fileno() == -1:
+                raise ConnectionError("Socket is closed")
+
             return _blender_connection
         except Exception as e:
             # Connection is dead, close it and create a new one
@@ -230,6 +233,14 @@ def get_blender_connection():
             logger.error("Failed to connect to Blender")
             _blender_connection = None
             raise Exception("Could not connect to Blender. Make sure the Blender addon is running.")
+
+        # Initial connection: sync PolyHaven status
+        try:
+            result = _blender_connection.send_command("get_polyhaven_status")
+            _polyhaven_enabled = result.get("enabled", False)
+        except:
+            _polyhaven_enabled = False
+
         logger.info("Created new persistent connection to Blender")
     
     return _blender_connection
@@ -305,15 +316,15 @@ def get_polyhaven_categories(ctx: Context, asset_type: str = "hdris") -> str:
         
         # Format the categories in a more readable way
         categories = result["categories"]
-        formatted_output = f"Categories for {asset_type}:\n\n"
+        output_parts = [f"Categories for {asset_type}:\n"]
         
         # Sort categories by count (descending)
         sorted_categories = sorted(categories.items(), key=lambda x: x[1], reverse=True)
         
         for category, count in sorted_categories:
-            formatted_output += f"- {category}: {count} assets\n"
+            output_parts.append(f"- {category}: {count} assets")
         
-        return formatted_output
+        return "\n".join(output_parts)
     except Exception as e:
         logger.error(f"Error getting Polyhaven categories: {str(e)}")
         return f"Error getting Polyhaven categories: {str(e)}"
@@ -484,10 +495,11 @@ def get_polyhaven_status(ctx: Context) -> str:
     Check if PolyHaven integration is enabled in Blender.
     Returns a message indicating whether PolyHaven features are available.
     """
+    global _polyhaven_enabled
     try:
         blender = get_blender_connection()
         result = blender.send_command("get_polyhaven_status")
-        enabled = result.get("enabled", False)
+        _polyhaven_enabled = result.get("enabled", False)
         message = result.get("message", "")
         
         return message
