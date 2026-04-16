@@ -66,16 +66,19 @@ class BlenderConnection:
                     
                     chunks.append(chunk)
                     
-                    # Check if we've received a complete JSON object
-                    try:
-                        data = b''.join(chunks)
-                        json.loads(data.decode('utf-8'))
-                        # If we get here, it parsed successfully
-                        logger.info(f"Received complete response ({len(data)} bytes)")
-                        return data
-                    except json.JSONDecodeError:
-                        # Incomplete JSON, continue receiving
-                        continue
+                    # Performance: Only attempt to parse if it looks like the end of a JSON object/array.
+                    # This avoids O(N^2) parsing attempts for large payloads received in many chunks.
+                    if chunk.rstrip().endswith((b'}', b']')):
+                        try:
+                            data = b''.join(chunks)
+                            # Performance: json.loads can handle bytes directly in Python 3.6+,
+                            # avoiding the overhead of an explicit .decode('utf-8').
+                            json.loads(data)
+                            logger.info(f"Received complete response ({len(data)} bytes)")
+                            return data
+                        except json.JSONDecodeError:
+                            # Incomplete JSON, continue receiving
+                            continue
                 except socket.timeout:
                     # If we hit a timeout during receiving, break the loop and try to use what we have
                     logger.warning("Socket timeout during chunked receive")
@@ -204,23 +207,17 @@ _polyhaven_enabled = False  # Add this global variable
 
 def get_blender_connection():
     """Get or create a persistent Blender connection"""
-    global _blender_connection, _polyhaven_enabled  # Add _polyhaven_enabled to globals
+    global _blender_connection, _polyhaven_enabled
     
-    # If we have an existing connection, check if it's still valid
-    if _blender_connection is not None:
+    # Performance: Avoid a redundant network roundtrip (ping) for every single call.
+    # The send_command method already handles socket failures and invalidates the connection.
+    if _blender_connection is not None and _blender_connection.sock is not None:
         try:
-            # First check if PolyHaven is enabled by sending a ping command
-            result = _blender_connection.send_command("get_polyhaven_status")
-            # Store the PolyHaven status globally
-            _polyhaven_enabled = result.get("enabled", False)
+            # Check if the socket is still alive using a lightweight fileno check
+            _blender_connection.sock.fileno()
             return _blender_connection
-        except Exception as e:
-            # Connection is dead, close it and create a new one
-            logger.warning(f"Existing connection is no longer valid: {str(e)}")
-            try:
-                _blender_connection.disconnect()
-            except:
-                pass
+        except (socket.error, ValueError):
+            # Connection is likely closed or invalid
             _blender_connection = None
     
     # Create a new connection if needed
@@ -231,6 +228,13 @@ def get_blender_connection():
             _blender_connection = None
             raise Exception("Could not connect to Blender. Make sure the Blender addon is running.")
         logger.info("Created new persistent connection to Blender")
+
+        # Cache the initial PolyHaven status
+        try:
+            result = _blender_connection.send_command("get_polyhaven_status")
+            _polyhaven_enabled = result.get("enabled", False)
+        except:
+            pass
     
     return _blender_connection
 
@@ -484,10 +488,11 @@ def get_polyhaven_status(ctx: Context) -> str:
     Check if PolyHaven integration is enabled in Blender.
     Returns a message indicating whether PolyHaven features are available.
     """
+    global _polyhaven_enabled
     try:
         blender = get_blender_connection()
         result = blender.send_command("get_polyhaven_status")
-        enabled = result.get("enabled", False)
+        _polyhaven_enabled = result.get("enabled", False)
         message = result.get("message", "")
         
         return message
