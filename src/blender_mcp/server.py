@@ -67,15 +67,17 @@ class BlenderConnection:
                     chunks.append(chunk)
                     
                     # Check if we've received a complete JSON object
-                    try:
-                        data = b''.join(chunks)
-                        json.loads(data.decode('utf-8'))
-                        # If we get here, it parsed successfully
-                        logger.info(f"Received complete response ({len(data)} bytes)")
-                        return data
-                    except json.JSONDecodeError:
-                        # Incomplete JSON, continue receiving
-                        continue
+                    # Optimization: only try to parse if it looks like the end of a JSON object/array
+                    if chunk.rstrip()[-1:] in (b'}', b']'):
+                        try:
+                            data = b''.join(chunks)
+                            json.loads(data.decode('utf-8'))
+                            # If we get here, it parsed successfully
+                            logger.info(f"Received complete response ({len(data)} bytes)")
+                            return data
+                        except json.JSONDecodeError:
+                            # Incomplete JSON, continue receiving
+                            pass
                 except socket.timeout:
                     # If we hit a timeout during receiving, break the loop and try to use what we have
                     logger.warning("Socket timeout during chunked receive")
