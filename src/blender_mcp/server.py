@@ -67,14 +67,18 @@ class BlenderConnection:
                     chunks.append(chunk)
                     
                     # Check if we've received a complete JSON object
-                    try:
-                        data = b''.join(chunks)
-                        json.loads(data.decode('utf-8'))
-                        # If we get here, it parsed successfully
-                        logger.info(f"Received complete response ({len(data)} bytes)")
-                        return data
-                    except json.JSONDecodeError:
-                        # Incomplete JSON, continue receiving
+                    # Optimization: only attempt to parse if it ends with a JSON terminator
+                    if chunk.rstrip()[-1:] in (b'}', b']'):
+                        try:
+                            data = b''.join(chunks)
+                            json.loads(data.decode('utf-8'))
+                            # If we get here, it parsed successfully
+                            logger.info(f"Received complete response ({len(data)} bytes)")
+                            return data
+                        except json.JSONDecodeError:
+                            # Incomplete JSON, continue receiving
+                            continue
+                    else:
                         continue
                 except socket.timeout:
                     # If we hit a timeout during receiving, break the loop and try to use what we have
@@ -305,15 +309,15 @@ def get_polyhaven_categories(ctx: Context, asset_type: str = "hdris") -> str:
         
         # Format the categories in a more readable way
         categories = result["categories"]
-        formatted_output = f"Categories for {asset_type}:\n\n"
+        parts = [f"Categories for {asset_type}:\n"]
         
         # Sort categories by count (descending)
         sorted_categories = sorted(categories.items(), key=lambda x: x[1], reverse=True)
         
         for category, count in sorted_categories:
-            formatted_output += f"- {category}: {count} assets\n"
+            parts.append(f"- {category}: {count} assets")
         
-        return formatted_output
+        return "\n".join(parts) + "\n"
     except Exception as e:
         logger.error(f"Error getting Polyhaven categories: {str(e)}")
         return f"Error getting Polyhaven categories: {str(e)}"
@@ -455,23 +459,25 @@ def set_texture(
             has_nodes = material_info.get("has_nodes", False)
             texture_nodes = material_info.get("texture_nodes", [])
             
-            output = f"Successfully applied texture '{texture_id}' to {object_name}.\n"
-            output += f"Using material '{material_name}' with maps: {maps}.\n\n"
-            output += f"Material has nodes: {has_nodes}\n"
-            output += f"Total node count: {node_count}\n\n"
+            output_parts = [
+                f"Successfully applied texture '{texture_id}' to {object_name}.",
+                f"Using material '{material_name}' with maps: {maps}.\n",
+                f"Material has nodes: {has_nodes}",
+                f"Total node count: {node_count}\n"
+            ]
             
             if texture_nodes:
-                output += "Texture nodes:\n"
+                output_parts.append("Texture nodes:")
                 for node in texture_nodes:
-                    output += f"- {node['name']} using image: {node['image']}\n"
+                    output_parts.append(f"- {node['name']} using image: {node['image']}")
                     if node['connections']:
-                        output += "  Connections:\n"
+                        output_parts.append("  Connections:")
                         for conn in node['connections']:
-                            output += f"    {conn}\n"
+                            output_parts.append(f"    {conn}")
             else:
-                output += "No texture nodes found in the material.\n"
+                output_parts.append("No texture nodes found in the material.")
             
-            return output
+            return "\n".join(output_parts) + "\n"
         else:
             return f"Failed to apply texture: {result.get('message', 'Unknown error')}"
     except Exception as e:
