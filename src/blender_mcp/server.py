@@ -66,16 +66,19 @@ class BlenderConnection:
                     
                     chunks.append(chunk)
                     
-                    # Check if we've received a complete JSON object
-                    try:
-                        data = b''.join(chunks)
-                        json.loads(data.decode('utf-8'))
-                        # If we get here, it parsed successfully
-                        logger.info(f"Received complete response ({len(data)} bytes)")
-                        return data
-                    except json.JSONDecodeError:
-                        # Incomplete JSON, continue receiving
-                        continue
+                    # Optimization: only attempt to parse if the chunk ends with a JSON terminator.
+                    # This avoids quadratic parsing overhead for large multi-chunk responses.
+                    if chunk.rstrip().endswith((b'}', b']')):
+                        try:
+                            data = b''.join(chunks)
+                            # Passing bytes directly to json.loads is faster than decoding to string first
+                            json.loads(data)
+                            # If we get here, it parsed successfully
+                            logger.info(f"Received complete response ({len(data)} bytes)")
+                            return data
+                        except json.JSONDecodeError:
+                            # Incomplete JSON, continue receiving
+                            continue
                 except socket.timeout:
                     # If we hit a timeout during receiving, break the loop and try to use what we have
                     logger.warning("Socket timeout during chunked receive")
@@ -129,7 +132,8 @@ class BlenderConnection:
             response_data = self.receive_full_response(self.sock)
             logger.info(f"Received {len(response_data)} bytes of data")
             
-            response = json.loads(response_data.decode('utf-8'))
+            # Use direct bytes loading for performance
+            response = json.loads(response_data)
             logger.info(f"Response parsed, status: {response.get('status', 'unknown')}")
             
             if response.get("status") == "error":
@@ -208,20 +212,18 @@ def get_blender_connection():
     
     # If we have an existing connection, check if it's still valid
     if _blender_connection is not None:
-        try:
-            # First check if PolyHaven is enabled by sending a ping command
-            result = _blender_connection.send_command("get_polyhaven_status")
-            # Store the PolyHaven status globally
-            _polyhaven_enabled = result.get("enabled", False)
+        # Optimization: use a lightweight check instead of a full network roundtrip.
+        # send_command will handle reconnection if the socket is actually dead.
+        if _blender_connection.sock and _blender_connection.sock.fileno() != -1:
             return _blender_connection
-        except Exception as e:
-            # Connection is dead, close it and create a new one
-            logger.warning(f"Existing connection is no longer valid: {str(e)}")
-            try:
-                _blender_connection.disconnect()
-            except:
-                pass
-            _blender_connection = None
+
+        # Connection is dead, close it and create a new one
+        logger.warning("Existing connection is no longer valid")
+        try:
+            _blender_connection.disconnect()
+        except:
+            pass
+        _blender_connection = None
     
     # Create a new connection if needed
     if _blender_connection is None:
@@ -484,10 +486,11 @@ def get_polyhaven_status(ctx: Context) -> str:
     Check if PolyHaven integration is enabled in Blender.
     Returns a message indicating whether PolyHaven features are available.
     """
+    global _polyhaven_enabled
     try:
         blender = get_blender_connection()
         result = blender.send_command("get_polyhaven_status")
-        enabled = result.get("enabled", False)
+        _polyhaven_enabled = result.get("enabled", False)
         message = result.get("message", "")
         
         return message
