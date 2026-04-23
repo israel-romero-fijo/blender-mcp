@@ -66,16 +66,20 @@ class BlenderConnection:
                     
                     chunks.append(chunk)
                     
-                    # Check if we've received a complete JSON object
-                    try:
-                        data = b''.join(chunks)
-                        json.loads(data.decode('utf-8'))
-                        # If we get here, it parsed successfully
-                        logger.info(f"Received complete response ({len(data)} bytes)")
-                        return data
-                    except json.JSONDecodeError:
-                        # Incomplete JSON, continue receiving
-                        continue
+                    # Performance optimization: Only attempt to parse if the chunk ends with a potential JSON terminator
+                    # This avoids O(N^2) parsing overhead for large multi-chunk payloads
+                    if chunk.rstrip().endswith((b'}', b']')):
+                        # Check if we've received a complete JSON object
+                        try:
+                            data = b''.join(chunks)
+                            # In Python 3.6+, json.loads() handles bytes directly which is slightly more efficient
+                            json.loads(data)
+                            # If we get here, it parsed successfully
+                            logger.info(f"Received complete response ({len(data)} bytes)")
+                            return data
+                        except json.JSONDecodeError:
+                            # Incomplete JSON, continue receiving
+                            continue
                 except socket.timeout:
                     # If we hit a timeout during receiving, break the loop and try to use what we have
                     logger.warning("Socket timeout during chunked receive")
@@ -210,8 +214,9 @@ def get_blender_connection():
     if _blender_connection is not None:
         try:
             # First check if PolyHaven is enabled by sending a ping command
+            # This also serves as a robust health check for the connection
             result = _blender_connection.send_command("get_polyhaven_status")
-            # Store the PolyHaven status globally
+            # Store the PolyHaven status globally to keep it synchronized
             _polyhaven_enabled = result.get("enabled", False)
             return _blender_connection
         except Exception as e:
