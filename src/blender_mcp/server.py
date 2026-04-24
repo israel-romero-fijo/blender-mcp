@@ -66,10 +66,16 @@ class BlenderConnection:
                     
                     chunks.append(chunk)
                     
+                    # Optimization: Only attempt to parse if the chunk looks like it could be the end of JSON
+                    # (terminates with } or ] after stripping whitespace). This avoids O(N^2) parsing cost.
+                    if not chunk.rstrip().endswith((b'}', b']')):
+                        continue
+
                     # Check if we've received a complete JSON object
                     try:
                         data = b''.join(chunks)
-                        json.loads(data.decode('utf-8'))
+                        # json.loads can accept bytes directly since Python 3.6+
+                        json.loads(data)
                         # If we get here, it parsed successfully
                         logger.info(f"Received complete response ({len(data)} bytes)")
                         return data
@@ -96,7 +102,7 @@ class BlenderConnection:
             logger.info(f"Returning data after receive completion ({len(data)} bytes)")
             try:
                 # Try to parse what we have
-                json.loads(data.decode('utf-8'))
+                json.loads(data)
                 return data
             except json.JSONDecodeError:
                 # If we can't parse it, it's incomplete
@@ -129,7 +135,8 @@ class BlenderConnection:
             response_data = self.receive_full_response(self.sock)
             logger.info(f"Received {len(response_data)} bytes of data")
             
-            response = json.loads(response_data.decode('utf-8'))
+            # Use direct bytes parsing
+            response = json.loads(response_data)
             logger.info(f"Response parsed, status: {response.get('status', 'unknown')}")
             
             if response.get("status") == "error":
@@ -305,15 +312,15 @@ def get_polyhaven_categories(ctx: Context, asset_type: str = "hdris") -> str:
         
         # Format the categories in a more readable way
         categories = result["categories"]
-        formatted_output = f"Categories for {asset_type}:\n\n"
+        parts = [f"Categories for {asset_type}:\n\n"]
         
         # Sort categories by count (descending)
         sorted_categories = sorted(categories.items(), key=lambda x: x[1], reverse=True)
         
         for category, count in sorted_categories:
-            formatted_output += f"- {category}: {count} assets\n"
+            parts.append(f"- {category}: {count} assets\n")
         
-        return formatted_output
+        return "".join(parts)
     except Exception as e:
         logger.error(f"Error getting Polyhaven categories: {str(e)}")
         return f"Error getting Polyhaven categories: {str(e)}"
@@ -348,21 +355,21 @@ def search_polyhaven_assets(
         total_count = result["total_count"]
         returned_count = result["returned_count"]
         
-        formatted_output = f"Found {total_count} assets"
+        parts = [f"Found {total_count} assets"]
         if categories:
-            formatted_output += f" in categories: {categories}"
-        formatted_output += f"\nShowing {returned_count} assets:\n\n"
+            parts.append(f" in categories: {categories}")
+        parts.append(f"\nShowing {returned_count} assets:\n\n")
         
         # Sort assets by download count (popularity)
         sorted_assets = sorted(assets.items(), key=lambda x: x[1].get("download_count", 0), reverse=True)
         
         for asset_id, asset_data in sorted_assets:
-            formatted_output += f"- {asset_data.get('name', asset_id)} (ID: {asset_id})\n"
-            formatted_output += f"  Type: {['HDRI', 'Texture', 'Model'][asset_data.get('type', 0)]}\n"
-            formatted_output += f"  Categories: {', '.join(asset_data.get('categories', []))}\n"
-            formatted_output += f"  Downloads: {asset_data.get('download_count', 'Unknown')}\n\n"
+            parts.append(f"- {asset_data.get('name', asset_id)} (ID: {asset_id})\n")
+            parts.append(f"  Type: {['HDRI', 'Texture', 'Model'][asset_data.get('type', 0)]}\n")
+            parts.append(f"  Categories: {', '.join(asset_data.get('categories', []))}\n")
+            parts.append(f"  Downloads: {asset_data.get('download_count', 'Unknown')}\n\n")
         
-        return formatted_output
+        return "".join(parts)
     except Exception as e:
         logger.error(f"Error searching Polyhaven assets: {str(e)}")
         return f"Error searching Polyhaven assets: {str(e)}"
