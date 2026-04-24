@@ -1,0 +1,3 @@
+## 2025-05-14 - Optimized JSON reception and string building
+**Learning:** The previous implementation of chunked JSON reception used quadratic bytes concatenation and attempted full JSON parsing on every chunk. For a 2MB payload, this resulted in significant overhead. Implementing terminator-aware parsing (checking for '}' or ']' before parsing) and list-based chunk accumulation reduces this to near-linear complexity. Additionally, using direct bytes parsing with `json.loads()` avoids redundant UTF-8 decoding.
+**Action:** Always use list-based accumulation for buffers and implement lightweight heuristic checks before calling heavy parsers like `json.loads()` in streaming contexts.
