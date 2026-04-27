@@ -66,16 +66,19 @@ class BlenderConnection:
                     
                     chunks.append(chunk)
                     
-                    # Check if we've received a complete JSON object
-                    try:
-                        data = b''.join(chunks)
-                        json.loads(data.decode('utf-8'))
-                        # If we get here, it parsed successfully
-                        logger.info(f"Received complete response ({len(data)} bytes)")
-                        return data
-                    except json.JSONDecodeError:
-                        # Incomplete JSON, continue receiving
-                        continue
+                    # Optimization: Only try to parse if the chunk ends with a potential JSON terminator.
+                    # This avoids quadratic JSON parsing overhead during chunked reception.
+                    if chunk.rstrip()[-1:] in (b'}', b']'):
+                        try:
+                            data = b''.join(chunks)
+                            # Directly load from bytes (faster and avoids extra decode step)
+                            json.loads(data)
+                            # If we get here, it parsed successfully
+                            logger.info(f"Received complete response ({len(data)} bytes)")
+                            return data
+                        except json.JSONDecodeError:
+                            # Incomplete JSON, continue receiving
+                            pass
                 except socket.timeout:
                     # If we hit a timeout during receiving, break the loop and try to use what we have
                     logger.warning("Socket timeout during chunked receive")
@@ -96,7 +99,7 @@ class BlenderConnection:
             logger.info(f"Returning data after receive completion ({len(data)} bytes)")
             try:
                 # Try to parse what we have
-                json.loads(data.decode('utf-8'))
+                json.loads(data)
                 return data
             except json.JSONDecodeError:
                 # If we can't parse it, it's incomplete
@@ -129,7 +132,8 @@ class BlenderConnection:
             response_data = self.receive_full_response(self.sock)
             logger.info(f"Received {len(response_data)} bytes of data")
             
-            response = json.loads(response_data.decode('utf-8'))
+            # Directly load from bytes
+            response = json.loads(response_data)
             logger.info(f"Response parsed, status: {response.get('status', 'unknown')}")
             
             if response.get("status") == "error":
