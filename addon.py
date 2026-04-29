@@ -129,39 +129,45 @@ class BlenderMCPServer:
                         print("Client disconnected")
                         break
                     
-                    buffer += data
-                    try:
-                        # Try to parse command
-                        command = json.loads(buffer.decode('utf-8'))
-                        buffer = b''
-                        
-                        # Execute command in Blender's main thread
-                        def execute_wrapper():
-                            try:
-                                response = self.execute_command(command)
-                                response_json = json.dumps(response)
+                    if not buffer:
+                        buffer = []
+                    buffer.append(data)
+
+                    # Bolt optimization: Only try parsing if it looks like the end of a JSON object/array
+                    if data.rstrip().endswith((b'}', b']')):
+                        try:
+                            # Try to parse command
+                            full_data = b''.join(buffer)
+                            command = json.loads(full_data)
+                            buffer = []
+
+                            # Execute command in Blender's main thread
+                            def execute_wrapper(cmd=command): # Bolt: use default arg to capture current command
                                 try:
-                                    client.sendall(response_json.encode('utf-8'))
-                                except:
-                                    print("Failed to send response - client disconnected")
-                            except Exception as e:
-                                print(f"Error executing command: {str(e)}")
-                                traceback.print_exc()
-                                try:
-                                    error_response = {
-                                        "status": "error",
-                                        "message": str(e)
-                                    }
-                                    client.sendall(json.dumps(error_response).encode('utf-8'))
-                                except:
-                                    pass
-                            return None
-                        
-                        # Schedule execution in main thread
-                        bpy.app.timers.register(execute_wrapper, first_interval=0.0)
-                    except json.JSONDecodeError:
-                        # Incomplete data, wait for more
-                        pass
+                                    response = self.execute_command(cmd)
+                                    response_json = json.dumps(response)
+                                    try:
+                                        client.sendall(response_json.encode('utf-8'))
+                                    except:
+                                        print("Failed to send response - client disconnected")
+                                except Exception as e:
+                                    print(f"Error executing command: {str(e)}")
+                                    traceback.print_exc()
+                                    try:
+                                        error_response = {
+                                            "status": "error",
+                                            "message": str(e)
+                                        }
+                                        client.sendall(json.dumps(error_response).encode('utf-8'))
+                                    except:
+                                        pass
+                                return None
+
+                            # Schedule execution in main thread
+                            bpy.app.timers.register(execute_wrapper, first_interval=0.0)
+                        except json.JSONDecodeError:
+                            # Incomplete data, wait for more
+                            pass
                 except Exception as e:
                     print(f"Error receiving data: {str(e)}")
                     break
@@ -913,12 +919,14 @@ class BlenderMCPServer:
                 links.new(texture_nodes['arm'].outputs['Color'], separate_rgb.inputs['Image'])
                 
                 # Connect Roughness (G) if no dedicated roughness map
-                if not any(map_name in texture_nodes for map_name in ['roughness', 'rough']):
+                # Bolt optimization: Direct boolean chain is faster than any() for very small sets
+                if 'roughness' not in texture_nodes and 'rough' not in texture_nodes:
                     links.new(separate_rgb.outputs['G'], principled.inputs['Roughness'])
                     print("Connected ARM.G to Roughness")
                 
                 # Connect Metallic (B) if no dedicated metallic map
-                if not any(map_name in texture_nodes for map_name in ['metallic', 'metalness', 'metal']):
+                # Bolt optimization: Direct boolean chain is faster than any() for very small sets
+                if 'metallic' not in texture_nodes and 'metalness' not in texture_nodes and 'metal' not in texture_nodes:
                     links.new(separate_rgb.outputs['B'], principled.inputs['Metallic'])
                     print("Connected ARM.B to Metallic")
                 
