@@ -1,0 +1,3 @@
+## 2025-05-15 - Optimized Socket JSON Parsing
+**Learning:** In socket-based communication, attempting to `json.loads()` on every received chunk leads to $O(N^2)$ performance overhead because the entire buffer is parsed repeatedly. Using a list to accumulate chunks and only attempting to parse when a JSON terminator (`}` or `]`) is detected at the end of a chunk reduces this to near-linear performance. Additionally, `json.loads()` in Python 3.6+ supports bytes directly, so decoding to UTF-8 before parsing is redundant and slower.
+**Action:** Always implement terminator-aware parsing for JSON-over-socket streams and pass bytes directly to `json.loads()`.
