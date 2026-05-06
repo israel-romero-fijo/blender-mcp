@@ -11,7 +11,7 @@ import tempfile
 import traceback
 import os
 import shutil
-from bpy.props import StringProperty, IntProperty, BoolProperty, EnumProperty
+from bpy.props import IntProperty
 import io
 from contextlib import redirect_stdout
 
@@ -66,7 +66,7 @@ class BlenderMCPServer:
         if self.socket:
             try:
                 self.socket.close()
-            except:
+            except Exception:
                 pass
             self.socket = None
         
@@ -75,7 +75,7 @@ class BlenderMCPServer:
             try:
                 if self.server_thread.is_alive():
                     self.server_thread.join(timeout=1.0)
-            except:
+            except Exception:
                 pass
             self.server_thread = None
         
@@ -118,7 +118,7 @@ class BlenderMCPServer:
         """Handle connected client"""
         print("Client handler started")
         client.settimeout(None)  # No timeout
-        buffer = b''
+        chunks = []
         
         try:
             while self.running:
@@ -129,11 +129,19 @@ class BlenderMCPServer:
                         print("Client disconnected")
                         break
                     
-                    buffer += data
+                    chunks.append(data)
+
+                    # Optimization: only attempt to parse if the last non-whitespace byte
+                    # is a valid JSON terminator ('}' or ']')
+                    trimmed = data.rstrip()
+                    if not trimmed or trimmed[-1] not in (ord('}'), ord(']')):
+                        continue
+
                     try:
                         # Try to parse command
-                        command = json.loads(buffer.decode('utf-8'))
-                        buffer = b''
+                        full_data = b''.join(chunks)
+                        command = json.loads(full_data.decode('utf-8'))
+                        chunks = []
                         
                         # Execute command in Blender's main thread
                         def execute_wrapper():
@@ -142,7 +150,7 @@ class BlenderMCPServer:
                                 response_json = json.dumps(response)
                                 try:
                                     client.sendall(response_json.encode('utf-8'))
-                                except:
+                                except Exception:
                                     print("Failed to send response - client disconnected")
                             except Exception as e:
                                 print(f"Error executing command: {str(e)}")
@@ -153,7 +161,7 @@ class BlenderMCPServer:
                                         "message": str(e)
                                     }
                                     client.sendall(json.dumps(error_response).encode('utf-8'))
-                                except:
+                                except Exception:
                                     pass
                             return None
                         
@@ -170,7 +178,7 @@ class BlenderMCPServer:
         finally:
             try:
                 client.close()
-            except:
+            except Exception:
                 pass
             print("Client handler stopped")
 
@@ -226,7 +234,7 @@ class BlenderMCPServer:
             try:
                 print(f"Executing handler for {cmd_type}")
                 result = handler(**params)
-                print(f"Handler execution complete")
+                print("Handler execution complete")
                 return {"status": "success", "result": result}
             except Exception as e:
                 print(f"Error in handler: {str(e)}")
@@ -454,7 +462,7 @@ class BlenderMCPServer:
                             # Try to use Linear color space for EXR files
                             try:
                                 env_tex.image.colorspace_settings.name = 'Linear'
-                            except:
+                            except Exception:
                                 # Fallback to Non-Color if Linear isn't available
                                 env_tex.image.colorspace_settings.name = 'Non-Color'
                         else:  # hdr
@@ -463,7 +471,7 @@ class BlenderMCPServer:
                                 try:
                                     env_tex.image.colorspace_settings.name = color_space
                                     break  # Stop if we successfully set a color space
-                                except:
+                                except Exception:
                                     continue
                         
                         background = node_tree.nodes.new(type='ShaderNodeBackground')
@@ -484,7 +492,7 @@ class BlenderMCPServer:
                         # Clean up temporary file
                         try:
                             tempfile._cleanup()  # This will clean up all temporary files
-                        except:
+                        except Exception:
                             pass
                         
                         return {
@@ -495,7 +503,7 @@ class BlenderMCPServer:
                     except Exception as e:
                         return {"error": f"Failed to set up HDRI in Blender: {str(e)}"}
                 else:
-                    return {"error": f"Requested resolution or format not available for this HDRI"}
+                    return {"error": "Requested resolution or format not available for this HDRI"}
                     
             elif asset_type == "textures":
                 if not file_format:
@@ -529,12 +537,12 @@ class BlenderMCPServer:
                                         if map_type in ['color', 'diffuse', 'albedo']:
                                             try:
                                                 image.colorspace_settings.name = 'sRGB'
-                                            except:
+                                            except Exception:
                                                 pass
                                         else:
                                             try:
                                                 image.colorspace_settings.name = 'Non-Color'
-                                            except:
+                                            except Exception:
                                                 pass
                                         
                                         downloaded_maps[map_type] = image
@@ -542,11 +550,11 @@ class BlenderMCPServer:
                                         # Clean up temporary file
                                         try:
                                             os.unlink(tmp_path)
-                                        except:
+                                        except Exception:
                                             pass
                 
                     if not downloaded_maps:
-                        return {"error": f"No texture maps found for the requested resolution and format"}
+                        return {"error": "No texture maps found for the requested resolution and format"}
                     
                     # Create a new material with the downloaded textures
                     mat = bpy.data.materials.new(name=asset_id)
@@ -590,12 +598,12 @@ class BlenderMCPServer:
                         if map_type.lower() in ['color', 'diffuse', 'albedo']:
                             try:
                                 tex_node.image.colorspace_settings.name = 'sRGB'
-                            except:
+                            except Exception:
                                 pass  # Use default if sRGB not available
                         else:
                             try:
                                 tex_node.image.colorspace_settings.name = 'Non-Color'
-                            except:
+                            except Exception:
                                 pass  # Use default if Non-Color not available
                         
                         links.new(mapping.outputs['Vector'], tex_node.inputs['Vector'])
@@ -708,10 +716,10 @@ class BlenderMCPServer:
                         # Clean up temporary directory
                         try:
                             shutil.rmtree(temp_dir)
-                        except:
+                        except Exception:
                             print(f"Failed to clean up temporary directory: {temp_dir}")
                 else:
-                    return {"error": f"Requested format or resolution not available for this model"}
+                    return {"error": "Requested format or resolution not available for this model"}
                 
             else:
                 return {"error": f"Unsupported asset type: {asset_type}"}
@@ -745,12 +753,12 @@ class BlenderMCPServer:
                     if map_type.lower() in ['color', 'diffuse', 'albedo']:
                         try:
                             img.colorspace_settings.name = 'sRGB'
-                        except:
+                        except Exception:
                             pass
                     else:
                         try:
                             img.colorspace_settings.name = 'Non-Color'
-                        except:
+                        except Exception:
                             pass
                     
                     # Ensure the image is packed
@@ -819,12 +827,12 @@ class BlenderMCPServer:
                 if map_type.lower() in ['color', 'diffuse', 'albedo']:
                     try:
                         tex_node.image.colorspace_settings.name = 'sRGB'
-                    except:
+                    except Exception:
                         pass  # Use default if sRGB not available
                 else:
                     try:
                         tex_node.image.colorspace_settings.name = 'Non-Color'
-                    except:
+                    except Exception:
                         pass  # Use default if Non-Color not available
                 
                 links.new(mapping.outputs['Vector'], tex_node.inputs['Vector'])
@@ -1074,7 +1082,7 @@ class BlenderMCPServer:
             case "FAL_AI":
                 return self.create_rodin_job_fal_ai(*args, **kwargs)
             case _:
-                return f"Error: Unknown Hyper3D Rodin mode!"
+                return "Error: Unknown Hyper3D Rodin mode!"
 
     def create_rodin_job_main_site(
             self,
@@ -1143,7 +1151,7 @@ class BlenderMCPServer:
             case "FAL_AI":
                 return self.poll_rodin_job_status_fal_ai(*args, **kwargs)
             case _:
-                return f"Error: Unknown Hyper3D Rodin mode!"
+                return "Error: Unknown Hyper3D Rodin mode!"
 
     def poll_rodin_job_status_main_site(self, subscription_key: str):
         """Call the job status API to get the job status"""
@@ -1234,7 +1242,7 @@ class BlenderMCPServer:
                 if mesh_obj.data.name is not None:
                     mesh_obj.data.name = mesh_name
                 print(f"Mesh renamed to: {mesh_name}")
-        except Exception as e:
+        except Exception:
             print("Having issue with renaming, give up renaming.")
 
         return mesh_obj
@@ -1246,7 +1254,7 @@ class BlenderMCPServer:
             case "FAL_AI":
                 return self.import_generated_asset_fal_ai(*args, **kwargs)
             case _:
-                return f"Error: Unknown Hyper3D Rodin mode!"
+                return "Error: Unknown Hyper3D Rodin mode!"
 
     def import_generated_asset_main_site(self, task_uuid: str, name: str):
         """Fetch the generated asset, import into blender"""
