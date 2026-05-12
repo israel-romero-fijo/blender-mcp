@@ -118,7 +118,7 @@ class BlenderMCPServer:
         """Handle connected client"""
         print("Client handler started")
         client.settimeout(None)  # No timeout
-        buffer = b''
+        chunks = []
         
         try:
             while self.running:
@@ -129,11 +129,19 @@ class BlenderMCPServer:
                         print("Client disconnected")
                         break
                     
-                    buffer += data
-                    try:
-                        # Try to parse command
-                        command = json.loads(buffer.decode('utf-8'))
-                        buffer = b''
+                    chunks.append(data)
+
+                    # Optimization: Only attempt to parse JSON if the chunk ends with a likely terminator
+                    # This prevents O(N^2) overhead on large payloads.
+                    # Also use list-based accumulation instead of string concatenation.
+                    if data.rstrip().endswith((b'}', b']')):
+                        try:
+                            full_data = b''.join(chunks)
+                            command = json.loads(full_data.decode('utf-8'))
+                            chunks = []
+                        except json.JSONDecodeError:
+                            # Incomplete data, wait for more
+                            continue
                         
                         # Execute command in Blender's main thread
                         def execute_wrapper():
@@ -159,9 +167,6 @@ class BlenderMCPServer:
                         
                         # Schedule execution in main thread
                         bpy.app.timers.register(execute_wrapper, first_interval=0.0)
-                    except json.JSONDecodeError:
-                        # Incomplete data, wait for more
-                        pass
                 except Exception as e:
                     print(f"Error receiving data: {str(e)}")
                     break
@@ -913,12 +918,13 @@ class BlenderMCPServer:
                 links.new(texture_nodes['arm'].outputs['Color'], separate_rgb.inputs['Image'])
                 
                 # Connect Roughness (G) if no dedicated roughness map
-                if not any(map_name in texture_nodes for map_name in ['roughness', 'rough']):
+                # Optimization: Use direct boolean chains for small sets to avoid generator overhead in Python 3.9.7
+                if 'roughness' not in texture_nodes and 'rough' not in texture_nodes:
                     links.new(separate_rgb.outputs['G'], principled.inputs['Roughness'])
                     print("Connected ARM.G to Roughness")
                 
                 # Connect Metallic (B) if no dedicated metallic map
-                if not any(map_name in texture_nodes for map_name in ['metallic', 'metalness', 'metal']):
+                if 'metallic' not in texture_nodes and 'metalness' not in texture_nodes and 'metal' not in texture_nodes:
                     links.new(separate_rgb.outputs['B'], principled.inputs['Metallic'])
                     print("Connected ARM.B to Metallic")
                 

@@ -1,0 +1,3 @@
+## 2025-05-14 - O(N^2) JSON Parsing and Redundant Sync I/O
+**Learning:** The socket communication layer exhibited O(N^2) overhead by attempting to parse the entire accumulated buffer on every received chunk. Additionally, a synchronous "ping" (get_polyhaven_status) was being performed on every tool call to verify connection health, adding unnecessary round-trip latency.
+**Action:** Implement terminator-aware JSON parsing (checking for `}` or `]`) and switch to list-based chunk accumulation. Replace synchronous round-trip pings with local file descriptor checks (`fileno() != -1`) and rely on existing exception handling for robust reconnection.
