@@ -11,7 +11,7 @@ import tempfile
 import traceback
 import os
 import shutil
-from bpy.props import StringProperty, IntProperty, BoolProperty, EnumProperty
+from bpy.props import IntProperty
 import io
 from contextlib import redirect_stdout
 
@@ -118,7 +118,7 @@ class BlenderMCPServer:
         """Handle connected client"""
         print("Client handler started")
         client.settimeout(None)  # No timeout
-        buffer = b''
+        chunks = []
         
         try:
             while self.running:
@@ -129,14 +129,21 @@ class BlenderMCPServer:
                         print("Client disconnected")
                         break
                     
-                    buffer += data
+                    chunks.append(data)
+
+                    # PERFORMANCE: Only attempt to parse JSON if the chunk ends with } or ]
+                    # This avoids O(N^2) overhead of parsing incomplete JSON in every chunk
+                    if not data.rstrip().endswith((b'}', b']')):
+                        continue
+
                     try:
                         # Try to parse command
-                        command = json.loads(buffer.decode('utf-8'))
-                        buffer = b''
+                        combined_data = b''.join(chunks)
+                        command = json.loads(combined_data)
+                        chunks = []
                         
                         # Execute command in Blender's main thread
-                        def execute_wrapper():
+                        def execute_wrapper(command=command):
                             try:
                                 response = self.execute_command(command)
                                 response_json = json.dumps(response)
@@ -226,7 +233,7 @@ class BlenderMCPServer:
             try:
                 print(f"Executing handler for {cmd_type}")
                 result = handler(**params)
-                print(f"Handler execution complete")
+                print("Handler execution complete")
                 return {"status": "success", "result": result}
             except Exception as e:
                 print(f"Error in handler: {str(e)}")
@@ -495,7 +502,7 @@ class BlenderMCPServer:
                     except Exception as e:
                         return {"error": f"Failed to set up HDRI in Blender: {str(e)}"}
                 else:
-                    return {"error": f"Requested resolution or format not available for this HDRI"}
+                    return {"error": "Requested resolution or format not available for this HDRI"}
                     
             elif asset_type == "textures":
                 if not file_format:
@@ -546,7 +553,7 @@ class BlenderMCPServer:
                                             pass
                 
                     if not downloaded_maps:
-                        return {"error": f"No texture maps found for the requested resolution and format"}
+                        return {"error": "No texture maps found for the requested resolution and format"}
                     
                     # Create a new material with the downloaded textures
                     mat = bpy.data.materials.new(name=asset_id)
@@ -711,7 +718,7 @@ class BlenderMCPServer:
                         except:
                             print(f"Failed to clean up temporary directory: {temp_dir}")
                 else:
-                    return {"error": f"Requested format or resolution not available for this model"}
+                    return {"error": "Requested format or resolution not available for this model"}
                 
             else:
                 return {"error": f"Unsupported asset type: {asset_type}"}
@@ -1074,7 +1081,7 @@ class BlenderMCPServer:
             case "FAL_AI":
                 return self.create_rodin_job_fal_ai(*args, **kwargs)
             case _:
-                return f"Error: Unknown Hyper3D Rodin mode!"
+                return "Error: Unknown Hyper3D Rodin mode!"
 
     def create_rodin_job_main_site(
             self,
@@ -1143,7 +1150,7 @@ class BlenderMCPServer:
             case "FAL_AI":
                 return self.poll_rodin_job_status_fal_ai(*args, **kwargs)
             case _:
-                return f"Error: Unknown Hyper3D Rodin mode!"
+                return "Error: Unknown Hyper3D Rodin mode!"
 
     def poll_rodin_job_status_main_site(self, subscription_key: str):
         """Call the job status API to get the job status"""
@@ -1234,7 +1241,7 @@ class BlenderMCPServer:
                 if mesh_obj.data.name is not None:
                     mesh_obj.data.name = mesh_name
                 print(f"Mesh renamed to: {mesh_name}")
-        except Exception as e:
+        except Exception:
             print("Having issue with renaming, give up renaming.")
 
         return mesh_obj
@@ -1246,7 +1253,7 @@ class BlenderMCPServer:
             case "FAL_AI":
                 return self.import_generated_asset_fal_ai(*args, **kwargs)
             case _:
-                return f"Error: Unknown Hyper3D Rodin mode!"
+                return "Error: Unknown Hyper3D Rodin mode!"
 
     def import_generated_asset_main_site(self, task_uuid: str, name: str):
         """Fetch the generated asset, import into blender"""

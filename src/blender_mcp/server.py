@@ -1,12 +1,11 @@
 # blender_mcp_server.py
-from mcp.server.fastmcp import FastMCP, Context, Image
+from mcp.server.fastmcp import FastMCP, Context
 import socket
 import json
-import asyncio
 import logging
 from dataclasses import dataclass
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, Dict, Any, List
+from typing import AsyncIterator, Dict, Any
 import os
 from pathlib import Path
 import base64
@@ -66,10 +65,15 @@ class BlenderConnection:
                     
                     chunks.append(chunk)
                     
+                    # PERFORMANCE: Only attempt to parse JSON if the chunk ends with } or ]
+                    # This avoids O(N^2) overhead of parsing incomplete JSON in every chunk
+                    if not chunk.rstrip().endswith((b'}', b']')):
+                        continue
+
                     # Check if we've received a complete JSON object
                     try:
                         data = b''.join(chunks)
-                        json.loads(data.decode('utf-8'))
+                        json.loads(data)  # json.loads handles bytes directly since Python 3.6
                         # If we get here, it parsed successfully
                         logger.info(f"Received complete response ({len(data)} bytes)")
                         return data
@@ -96,7 +100,7 @@ class BlenderConnection:
             logger.info(f"Returning data after receive completion ({len(data)} bytes)")
             try:
                 # Try to parse what we have
-                json.loads(data.decode('utf-8'))
+                json.loads(data)
                 return data
             except json.JSONDecodeError:
                 # If we can't parse it, it's incomplete
@@ -120,7 +124,7 @@ class BlenderConnection:
             
             # Send the command
             self.sock.sendall(json.dumps(command).encode('utf-8'))
-            logger.info(f"Command sent, waiting for response...")
+            logger.info("Command sent, waiting for response...")
             
             # Set a timeout for receiving - use the same timeout as in receive_full_response
             self.sock.settimeout(15.0)  # Match the addon's timeout
@@ -129,7 +133,7 @@ class BlenderConnection:
             response_data = self.receive_full_response(self.sock)
             logger.info(f"Received {len(response_data)} bytes of data")
             
-            response = json.loads(response_data.decode('utf-8'))
+            response = json.loads(response_data)
             logger.info(f"Response parsed, status: {response.get('status', 'unknown')}")
             
             if response.get("status") == "error":
@@ -172,7 +176,7 @@ async def server_lifespan(server: FastMCP) -> AsyncIterator[Dict[str, Any]]:
         # Try to connect to Blender on startup to verify it's available
         try:
             # This will initialize the global connection if needed
-            blender = get_blender_connection()
+            get_blender_connection()
             logger.info("Successfully connected to Blender on startup")
         except Exception as e:
             logger.warning(f"Could not connect to Blender on startup: {str(e)}")
@@ -219,7 +223,7 @@ def get_blender_connection():
             logger.warning(f"Existing connection is no longer valid: {str(e)}")
             try:
                 _blender_connection.disconnect()
-            except:
+            except Exception:
                 pass
             _blender_connection = None
     
@@ -487,7 +491,6 @@ def get_polyhaven_status(ctx: Context) -> str:
     try:
         blender = get_blender_connection()
         result = blender.send_command("get_polyhaven_status")
-        enabled = result.get("enabled", False)
         message = result.get("message", "")
         
         return message
@@ -581,9 +584,9 @@ def generate_hyper3d_model_via_images(
     Returns a message indicating success or failure.
     """
     if input_image_paths is not None and input_image_urls is not None:
-        return f"Error: Conflict parameters given!"
+        return "Error: Conflict parameters given!"
     if input_image_paths is None and input_image_urls is None:
-        return f"Error: No image given!"
+        return "Error: No image given!"
     if input_image_paths is not None:
         if not all(os.path.exists(i) for i in input_image_paths):
             return "Error: not all image paths are valid!"
