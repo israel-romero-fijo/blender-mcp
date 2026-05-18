@@ -1,0 +1,3 @@
+## 2025-05-15 - Quadratic JSON parsing overhead in socket receivers
+**Learning:** Repeatedly calling `json.loads()` on an accumulating byte buffer in a socket receiver loop creates $O(N^2)$ performance overhead. Large payloads (e.g., 400KB+) can take hundreds of milliseconds to process because every small chunk received triggers a full re-parse of the entire buffer up to that point.
+**Action:** Use "terminator-aware" parsing: only attempt `json.loads()` if the current chunk ends with a JSON terminator like `}` or `]` (after `rstrip()`). Combine this with list-based chunk accumulation (`b''.join(chunks)`) for near-linear performance.
