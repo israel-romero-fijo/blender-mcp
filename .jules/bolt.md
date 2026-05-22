@@ -1,0 +1,3 @@
+## 2026-05-22 - [Optimized JSON Socket Communication]
+**Learning:** JSON parsing of large payloads in chunks is O(N^2) if every chunk triggers a full parse. Using a terminator-aware check (e.g., endswith('}') or ']') can reduce this to O(N) by only parsing when a message is likely complete.
+**Action:** Always check for message boundaries when receiving chunked data over sockets before attempting heavy parsing logic.
