@@ -25,7 +25,7 @@ bl_info = {
     "category": "Interface",
 }
 
-RODIN_FREE_TRIAL_KEY = "k9TcfFoEhNd9cCPP2guHAHHHkctZHIRhZDywZ1euGUXwihbYLpOjQhofby80NJez"
+RODIN_FREE_TRIAL_KEY = os.environ.get("RODIN_FREE_TRIAL_KEY", "")
 
 class BlenderMCPServer:
     def __init__(self, host='localhost', port=9876):
@@ -1052,8 +1052,12 @@ class BlenderMCPServer:
                                 4. Restart the connection to Claude"""
                 }
             mode = bpy.context.scene.blendermcp_hyper3d_mode
+            key_type = 'private'
+            if RODIN_FREE_TRIAL_KEY and bpy.context.scene.blendermcp_hyper3d_api_key == RODIN_FREE_TRIAL_KEY:
+                key_type = 'free_trial'
+
             message = f"Hyper3D Rodin integration is enabled and ready to use. Mode: {mode}. " + \
-                f"Key type: {'private' if bpy.context.scene.blendermcp_hyper3d_api_key != RODIN_FREE_TRIAL_KEY else 'free_trial'}"
+                f"Key type: {key_type}"
             return {
                 "enabled": True,
                 "message": message
@@ -1406,6 +1410,9 @@ class BLENDERMCP_OT_SetFreeTrialHyper3DAPIKey(bpy.types.Operator):
     bl_label = "Set Free Trial API Key"
     
     def execute(self, context):
+        if not RODIN_FREE_TRIAL_KEY:
+            self.report({'ERROR'}, "Free Trial API Key not set in environment (RODIN_FREE_TRIAL_KEY)!")
+            return {'CANCELLED'}
         context.scene.blendermcp_hyper3d_api_key = RODIN_FREE_TRIAL_KEY
         context.scene.blendermcp_hyper3d_mode = 'MAIN_SITE'
         self.report({'INFO'}, "API Key set successfully!")
