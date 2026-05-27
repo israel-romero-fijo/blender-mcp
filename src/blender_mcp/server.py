@@ -305,15 +305,15 @@ def get_polyhaven_categories(ctx: Context, asset_type: str = "hdris") -> str:
         
         # Format the categories in a more readable way
         categories = result["categories"]
-        formatted_output = f"Categories for {asset_type}:\n\n"
+        output_parts = [f"Categories for {asset_type}:\n"]
         
         # Sort categories by count (descending)
         sorted_categories = sorted(categories.items(), key=lambda x: x[1], reverse=True)
         
         for category, count in sorted_categories:
-            formatted_output += f"- {category}: {count} assets\n"
+            output_parts.append(f"- {category}: {count} assets")
         
-        return formatted_output
+        return "\n".join(output_parts) + "\n"
     except Exception as e:
         logger.error(f"Error getting Polyhaven categories: {str(e)}")
         return f"Error getting Polyhaven categories: {str(e)}"
@@ -348,21 +348,22 @@ def search_polyhaven_assets(
         total_count = result["total_count"]
         returned_count = result["returned_count"]
         
-        formatted_output = f"Found {total_count} assets"
+        header_parts = [f"Found {total_count} assets"]
         if categories:
-            formatted_output += f" in categories: {categories}"
-        formatted_output += f"\nShowing {returned_count} assets:\n\n"
+            header_parts.append(f" in categories: {categories}")
+        header_parts.append(f"\nShowing {returned_count} assets:\n\n")
         
+        body_parts = []
         # Sort assets by download count (popularity)
         sorted_assets = sorted(assets.items(), key=lambda x: x[1].get("download_count", 0), reverse=True)
         
         for asset_id, asset_data in sorted_assets:
-            formatted_output += f"- {asset_data.get('name', asset_id)} (ID: {asset_id})\n"
-            formatted_output += f"  Type: {['HDRI', 'Texture', 'Model'][asset_data.get('type', 0)]}\n"
-            formatted_output += f"  Categories: {', '.join(asset_data.get('categories', []))}\n"
-            formatted_output += f"  Downloads: {asset_data.get('download_count', 'Unknown')}\n\n"
+            body_parts.append(f"- {asset_data.get('name', asset_id)} (ID: {asset_id})")
+            body_parts.append(f"  Type: {['HDRI', 'Texture', 'Model'][asset_data.get('type', 0)]}")
+            body_parts.append(f"  Categories: {', '.join(asset_data.get('categories', []))}")
+            body_parts.append(f"  Downloads: {asset_data.get('download_count', 'Unknown')}\n")
         
-        return formatted_output
+        return "".join(header_parts) + "\n".join(body_parts) + ("\n" if body_parts else "")
     except Exception as e:
         logger.error(f"Error searching Polyhaven assets: {str(e)}")
         return f"Error searching Polyhaven assets: {str(e)}"
