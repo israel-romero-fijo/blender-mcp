@@ -79,7 +79,7 @@ class BlenderConnection:
                         # Check if we've received a complete JSON object
                         try:
                             data = b"".join(chunks)
-                            json.loads(data.decode("utf-8"))
+                            json.loads(data)
                             # If we get here, it parsed successfully
                             logger.info(
                                 f"Received complete response ({len(data)} bytes)"
@@ -108,7 +108,7 @@ class BlenderConnection:
             logger.info(f"Returning data after receive completion ({len(data)} bytes)")
             try:
                 # Try to parse what we have
-                json.loads(data.decode("utf-8"))
+                json.loads(data)
                 return data
             except json.JSONDecodeError:
                 # If we can't parse it, it's incomplete
@@ -140,7 +140,7 @@ class BlenderConnection:
             response_data = self.receive_full_response(self.sock)
             logger.info(f"Received {len(response_data)} bytes of data")
 
-            response = json.loads(response_data.decode("utf-8"))
+            response = json.loads(response_data)
             logger.info(f"Response parsed, status: {response.get('status', 'unknown')}")
 
             if response.get("status") == "error":
@@ -226,20 +226,16 @@ def get_blender_connection():
 
     # If we have an existing connection, check if it's still valid
     if _blender_connection is not None:
-        try:
-            # First check if PolyHaven is enabled by sending a ping command
-            result = _blender_connection.send_command("get_polyhaven_status")
-            # Store the PolyHaven status globally
-            _polyhaven_enabled = result.get("enabled", False)
+        # Check if the socket is actually connected
+        if _blender_connection.sock:
             return _blender_connection
-        except Exception as e:
-            # Connection is dead, close it and create a new one
-            logger.warning(f"Existing connection is no longer valid: {str(e)}")
-            try:
-                _blender_connection.disconnect()
-            except Exception:
-                pass
-            _blender_connection = None
+        else:
+            # Socket was lost but object exists, try to reconnect
+            logger.warning("Existing connection object has no socket, attempting reconnect")
+            if _blender_connection.connect():
+                return _blender_connection
+            else:
+                _blender_connection = None
 
     # Create a new connection if needed
     if _blender_connection is None:
