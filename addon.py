@@ -138,7 +138,7 @@ class BlenderMCPServer:
                     if data.rstrip().endswith((b"}", b"]")):
                         try:
                             # Try to parse command
-                            command = json.loads(buffer.decode("utf-8"))
+                            command = json.loads(buffer)
                             buffer = b""
 
                             # Execute command in Blender's main thread
